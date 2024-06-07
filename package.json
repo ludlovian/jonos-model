@@ -1,0 +1,26 @@
+{
+  "name": "jonos-model",
+  "version": "0.0.1",
+  "description": "Stateful model of my sonos",
+  "type": "module",
+  "exports": "./src/index.mjs",
+  "scripts": {
+    "clean": "rm -rf coverage/ node_modules/.cache/",
+    "format": "prettier-standard '{src,test}/**/*.mjs'",
+    "lint": "standard '{src,test}/**/*.mjs' | snazzy",
+    "test": "c8 node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@ludlovian/debug": "github:ludlovian/debug",
+    "@ludlovian/signal-extra": "github:ludlovian/signal-extra",
+    "@lukeed/ms": "^2.0.2",
+    "@preact/signals-core": "^1.6.0",
+    "jonos-api": "github:ludlovian/jonos-api",
+    "pixutil": "github:ludlovian/pixutil",
+    "sortby": "github:ludlovian/sortby",
+    "timer": "github:ludlovian/timer"
+  }
+}

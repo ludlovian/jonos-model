@@ -1,0 +1,117 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@ludlovian/debug':
+        specifier: github:ludlovian/debug
+        version: https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994
+      '@ludlovian/signal-extra':
+        specifier: github:ludlovian/signal-extra
+        version: https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47
+      '@lukeed/ms':
+        specifier: ^2.0.2
+        version: 2.0.2
+      '@preact/signals-core':
+        specifier: ^1.6.0
+        version: 1.6.0
+      jonos-api:
+        specifier: github:ludlovian/jonos-api
+        version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0
+      pixutil:
+        specifier: github:ludlovian/pixutil
+        version: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4
+      sortby:
+        specifier: github:ludlovian/sortby
+        version: https://codeload.github.com/ludlovian/sortby/tar.gz/fbe088a79770376e4bdaa7868b53f10863ea5ca5
+      timer:
+        specifier: github:ludlovian/timer
+        version: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac
+
+packages:
+
+  '@ludlovian/debug@https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994':
+    resolution: {tarball: https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994}
+    version: 0.1.0
+
+  '@ludlovian/diff-object@https://codeload.github.com/ludlovian/diff-object/tar.gz/d86d2386f521357b6190c5f4b35a01830ac9a38c':
+    resolution: {tarball: https://codeload.github.com/ludlovian/diff-object/tar.gz/d86d2386f521357b6190c5f4b35a01830ac9a38c}
+    version: 0.3.0
+
+  '@ludlovian/signal-extra@https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47':
+    resolution: {tarball: https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47}
+    version: 0.3.0
+
+  '@lukeed/ms@2.0.2':
+    resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
+    engines: {node: '>=8'}
+
+  '@preact/signals-core@1.6.0':
+    resolution: {integrity: sha512-O/XGxwP85h1F7+ouqTMOIZ3+V1whfaV9ToIVcuyGriD4JkSD00cQo54BKdqjvBJxbenvp7ynfqRHEwI6e+NIhw==}
+
+  bouncer@https://codeload.github.com/ludlovian/bouncer/tar.gz/d6154cb3a3efa3783f36877b1eadd8599441e80e:
+    resolution: {tarball: https://codeload.github.com/ludlovian/bouncer/tar.gz/d6154cb3a3efa3783f36877b1eadd8599441e80e}
+    version: 2.0.1
+
+  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0:
+    resolution: {tarball: https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0}
+    version: 0.2.4
+
+  parsley@https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa:
+    resolution: {tarball: https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa}
+    version: 1.2.1
+
+  pixutil@https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4:
+    resolution: {tarball: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4}
+    version: 1.10.1
+
+  sortby@https://codeload.github.com/ludlovian/sortby/tar.gz/fbe088a79770376e4bdaa7868b53f10863ea5ca5:
+    resolution: {tarball: https://codeload.github.com/ludlovian/sortby/tar.gz/fbe088a79770376e4bdaa7868b53f10863ea5ca5}
+    version: 1.0.1
+
+  timer@https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac:
+    resolution: {tarball: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac}
+    version: 2.0.2
+
+snapshots:
+
+  '@ludlovian/debug@https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994': {}
+
+  '@ludlovian/diff-object@https://codeload.github.com/ludlovian/diff-object/tar.gz/d86d2386f521357b6190c5f4b35a01830ac9a38c':
+    dependencies:
+      pixutil: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4
+
+  '@ludlovian/signal-extra@https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47':
+    dependencies:
+      '@ludlovian/diff-object': https://codeload.github.com/ludlovian/diff-object/tar.gz/d86d2386f521357b6190c5f4b35a01830ac9a38c
+      '@preact/signals-core': 1.6.0
+      bouncer: https://codeload.github.com/ludlovian/bouncer/tar.gz/d6154cb3a3efa3783f36877b1eadd8599441e80e
+
+  '@lukeed/ms@2.0.2': {}
+
+  '@preact/signals-core@1.6.0': {}
+
+  bouncer@https://codeload.github.com/ludlovian/bouncer/tar.gz/d6154cb3a3efa3783f36877b1eadd8599441e80e:
+    dependencies:
+      timer: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac
+
+  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0:
+    dependencies:
+      '@ludlovian/debug': https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994
+      '@lukeed/ms': 2.0.2
+      parsley: https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa
+      pixutil: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4
+      timer: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac
+
+  parsley@https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa: {}
+
+  pixutil@https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4: {}
+
+  sortby@https://codeload.github.com/ludlovian/sortby/tar.gz/fbe088a79770376e4bdaa7868b53f10863ea5ca5: {}
+
+  timer@https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac: {}
