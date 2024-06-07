@@ -22,7 +22,7 @@ importers:
         version: 1.6.0
       jonos-api:
         specifier: github:ludlovian/jonos-api
-        version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0
+        version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/e4c5949ead9b3093175684af9bee11c6730ca892
       pixutil:
         specifier: github:ludlovian/pixutil
         version: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4
@@ -58,9 +58,9 @@ packages:
     resolution: {tarball: https://codeload.github.com/ludlovian/bouncer/tar.gz/d6154cb3a3efa3783f36877b1eadd8599441e80e}
     version: 2.0.1
 
-  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0:
-    resolution: {tarball: https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0}
-    version: 0.2.4
+  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/e4c5949ead9b3093175684af9bee11c6730ca892:
+    resolution: {tarball: https://codeload.github.com/ludlovian/jonos-api/tar.gz/e4c5949ead9b3093175684af9bee11c6730ca892}
+    version: 0.2.5
 
   parsley@https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa:
     resolution: {tarball: https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa}
@@ -100,7 +100,7 @@ snapshots:
     dependencies:
       timer: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac
 
-  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/40fbcc0690c29a202f7fb56b68cc77744a9094a0:
+  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/e4c5949ead9b3093175684af9bee11c6730ca892:
     dependencies:
       '@ludlovian/debug': https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994
       '@lukeed/ms': 2.0.2
