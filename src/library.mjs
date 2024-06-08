@@ -11,13 +11,10 @@ export default class Library {
     addSignals(this, {
       albums: [],
       albumById: () => new Map(this.albums.map(a => [a.id, a])),
-      trackByUrl: () =>
-        new Map(
-          this.albums
-            .map(a => a.tracks)
-            .flat()
-            .map(t => [t.url, t])
-        ),
+
+      _allTracks: () => this.albums.map(a => a.tracks).flat(),
+      trackById: () => new Map(this._allTracks.map(t => [t.id, t])),
+      trackByUrl: () => new Map(this._allTracks.map(t => [t.url, t])),
 
       radio: [],
       radioById: () => new Map(this.radio.map(r => [r.id, r])),
