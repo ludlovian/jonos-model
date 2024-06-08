@@ -9,8 +9,8 @@ const PREFIX = 'JONOS_'
 const defaults = {
   libraryRoot: './library/files',
   libraryRootCifs: 'x-file-cifs://data2.local/data/',
-  radioRoot: './library/',
-  radioFile: 'radio.json',
+  mediaRoot: './library/',
+  mediaFile: 'media.json',
 
   callRetries: 3,
   callVerifyTimeout: parseMs('3s'),

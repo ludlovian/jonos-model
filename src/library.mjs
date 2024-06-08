@@ -16,9 +16,9 @@ export default class Library {
       trackById: () => new Map(this._allTracks.map(t => [t.id, t])),
       trackByUrl: () => new Map(this._allTracks.map(t => [t.url, t])),
 
-      radio: [],
-      radioById: () => new Map(this.radio.map(r => [r.id, r])),
-      radioByUrl: () => new Map(this.radio.map(r => [r.url, r])),
+      media: [],
+      mediaById: () => new Map(this.media.map(m => [m.id, m])),
+      mediaByUrl: () => new Map(this.media.map(m => [m.url, m])),
 
       scanning: false
     })
@@ -26,7 +26,7 @@ export default class Library {
 
   async scan () {
     this.scanning = true
-    this.radio = await Radio.load()
+    this.media = await Media.load()
     this.albums = []
     const rootDir = resolve(config.libraryRoot)
     for await (const mdFile of scanDir(rootDir)) {
@@ -41,10 +41,13 @@ export default class Library {
     url = url + ''
     if (url.startsWith('x-file-cifs:')) {
       return this.trackByUrl.get(url) ?? new UnknownTrack(url)
-    } else if (url.startsWith('x-rincon-mp3radio:')) {
-      return this.radioByUrl.get(url) ?? new Radio({ url })
     } else {
-      return undefined
+      const urls = [url, url.split(':')[0]]
+      for (const url of urls) {
+        const media = this.mediaByUrl.get(url)
+        if (media) return media
+      }
+      return new Media({ url })
     }
   }
 
@@ -57,9 +60,9 @@ export default class Library {
     if (!words.filter(w => w.length > 2).length) return []
 
     const universe = [
-      ...this.radio.map(radio => ({
-        item: radio,
-        text: `radio ${radio.title}`.toLowerCase()
+      ...this.media.map(media => ({
+        item: media,
+        text: `${media.type} ${media.title}`.toLowerCase()
       })),
       ...this.albums.map(album => ({
         item: album,
@@ -174,30 +177,27 @@ class UnknownTrack {
   }
 }
 
-class Radio {
+class Media {
   id
+  type
   url
   artwork
   title
 
   static async load () {
-    const root = resolve(config.radioRoot)
-    const file = join(root, config.radioFile)
+    const root = resolve(config.mediaRoot)
+    const file = join(root, config.mediaFile)
     const md = JSON.parse(await readFile(file, 'utf8'))
     return md.map(md => {
-      const r = new Radio(md, { root })
-      return r
+      const m = new Media(md, { root })
+      return m
     })
   }
 
   constructor (data, { root } = {}) {
-    const { url, id, title, artwork } = data
-    Object.assign(this, { url, id, title })
+    const { type, url, id, title, artwork } = data
+    Object.assign(this, { type, url, id, title })
     if (root && artwork) this.artwork = join(root, artwork)
-  }
-
-  get type () {
-    return 'radio'
   }
 }
 
