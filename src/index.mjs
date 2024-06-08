@@ -61,5 +61,5 @@ class Model {
 }
 
 const model = new Model()
-global.model = model
+if (Debug('jonos-model:model').enabled) global.jonosModel = { model }
 export default model
