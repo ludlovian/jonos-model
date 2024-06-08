@@ -10,7 +10,7 @@ export default class Library {
   constructor () {
     addSignals(this, {
       albums: [],
-      albumById: () => new Map(this.albums.map(a => [a.albumId, a])),
+      albumById: () => new Map(this.albums.map(a => [a.id, a])),
       trackByUrl: () =>
         new Map(
           this.albums
@@ -20,6 +20,7 @@ export default class Library {
         ),
 
       radio: [],
+      radioById: () => new Map(this.radio.map(r => [r.id, r])),
       radioByUrl: () => new Map(this.radio.map(r => [r.url, r])),
 
       scanning: false
@@ -32,10 +33,10 @@ export default class Library {
     this.albums = []
     const rootDir = resolve(config.libraryRoot)
     for await (const mdFile of scanDir(rootDir)) {
-      const albumId = relative(rootDir, dirname(mdFile))
-      const album = Object.assign(await Album.read(mdFile), { albumId })
+      const album = await Album.read(mdFile, rootDir)
       this.albums = [...this.albums, album]
     }
+    this.albums = this.albums.sort(sortBy('artist').thenBy('title'))
     this.scanning = false
   }
 
@@ -49,105 +50,157 @@ export default class Library {
       return undefined
     }
   }
-}
 
-class Radio {
-  id
-  url
-  artwork
-  name
+  search (text) {
+    const words = text
+      .split(' ')
+      .map(w => (w ? w.toLowerCase().trim() : w))
+      .filter(Boolean)
+    // we must have at least one word of 3 chars or more
+    if (!words.filter(w => w.length > 2).length) return []
 
-  static async load () {
-    const root = resolve(config.radioRoot)
-    const file = join(root, config.radioFile)
-    const md = JSON.parse(await readFile(file, 'utf8'))
-    return md.map(md => {
-      const r = new Radio(md)
-      if (r.artwork) r.artwork = join(root, r.artwork)
-      return r
-    })
-  }
+    const universe = [
+      ...this.radio.map(radio => ({
+        item: radio,
+        text: `radio ${radio.title}`.toLowerCase()
+      })),
+      ...this.albums.map(album => ({
+        item: album,
+        text: [album.artist, album.title, album.genre ?? '']
+          .join(' ')
+          .toLowerCase()
+      }))
+    ]
 
-  constructor (md) {
-    Object.assign(this, md)
+    return universe
+      .filter(({ text }) => words.every(word => text.includes(word)))
+      .map(({ item }) => ({ type: item.type, id: item.id }))
   }
 }
 
 class Album {
-  albumId
+  root
+  id
   artist
   genre
   title
   tracks
-  coverFile
 
-  static async read (mdFile) {
-    const a = new Album()
+  static async read (mdFile, root) {
     const md = JSON.parse(await readFile(mdFile, 'utf8'))
-    return Object.assign(a, {
-      artist: md.albumArtist,
-      genre: md.genre ?? '',
-      title: md.album,
-      coverFile: 'cover.jpg',
-      tracks: md.tracks
-        .map(t => Track.read(a, t))
-        .sort(sortBy('discNumber').thenBy('trackNumber'))
-        .map((t, index) => Object.assign(t, { index }))
-    })
+    const dir = dirname(mdFile)
+    return new Album(md, { root, dir })
+  }
+
+  constructor (md, { root, dir }) {
+    this.root = root
+    this.id = relative(root, dir)
+    this.artist = md.albumArtist
+    this.genre = md.genre
+    this.title = md.album
+    this.tracks = (md.tracks ?? [])
+      .sort(sortBy('discNumber').thenBy('trackNumber'))
+      .map((trackMD, index) => new Track(trackMD, { album: this, index }))
+  }
+
+  get type () {
+    return 'album'
+  }
+
+  get dir () {
+    return join(this.root, this.id)
+  }
+
+  get artwork () {
+    return join(this.root, this.id, 'cover.jpg')
   }
 
   get url () {
-    return this.albumId
-      ? new URL(this.albumId, config.libraryRootCifs).href
-      : undefined
-  }
-
-  get albumArt () {
-    return this.albumId ? join(this.albumId, this.coverFile) : undefined
+    return new URL(this.id, config.libraryRootCifs).href
   }
 }
 
 class Track {
   #album
   index
-  file
+  #file
   title
   discNumber
   trackNumber
   artist
 
-  static read (album, md) {
-    const t = new Track()
-    t.#album = album
-
-    return Object.assign(t, {
-      file: md.file,
-      title: md.title,
-      discNumber: md.discNumber,
-      trackNumber: md.trackNumber,
-      artist: !md.artist || Array.isArray(md.artist) ? md.artist : [md.artist]
-    })
+  constructor (md, { album, index }) {
+    this.#album = album
+    this.#file = md.file
+    this.index = index
+    this.title = md.title
+    this.discNumber = md.discNumber
+    this.trackNumber = md.trackNumber
+    if (md.artist) {
+      if (Array.isArray(md.artist)) {
+        this.artist = md.artist
+      } else {
+        this.artist = [md.artist]
+      }
+    }
   }
 
-  get albumId () {
-    return this.#album?.albumId
+  get type () {
+    return 'track'
   }
 
-  get trackId () {
-    return this.albumId ? join(this.albumId, this.file) : undefined
+  get id () {
+    return join(this.album.id, this.#file)
+  }
+
+  get album () {
+    return this.#album
+  }
+
+  get file () {
+    return join(this.album.dir, this.#file)
   }
 
   get url () {
-    return this.trackId
-      ? new URL(this.trackId, config.libraryRootCifs).href
-      : undefined
+    return new URL(this.id, config.libraryRootCifs).href
+  }
+
+  get artwork () {
+    return this.album.artwork
   }
 }
 
-class UnknownTrack extends Track {
+class UnknownTrack {
   constructor (url) {
-    super()
     this.url = url
+    this.type = 'track'
+  }
+}
+
+class Radio {
+  id
+  url
+  artwork
+  title
+
+  static async load () {
+    const root = resolve(config.radioRoot)
+    const file = join(root, config.radioFile)
+    const md = JSON.parse(await readFile(file, 'utf8'))
+    return md.map(md => {
+      const r = new Radio(md, { root })
+      return r
+    })
+  }
+
+  constructor (data, { root } = {}) {
+    const { url, id, title, artwork } = data
+    Object.assign(this, { url, id, title })
+    if (root && artwork) this.artwork = join(root, artwork)
+  }
+
+  get type () {
+    return 'radio'
   }
 }
 
