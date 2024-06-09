@@ -40,14 +40,13 @@ export default class Library {
   locate (url) {
     url = url + ''
     if (url.startsWith('x-file-cifs:')) {
-      return this.trackByUrl.get(url) ?? new UnknownTrack(url)
+      return this.trackByUrl.get(url)
     } else {
       const urls = [url, url.split(':')[0]]
       for (const url of urls) {
         const media = this.mediaByUrl.get(url)
         if (media) return media
       }
-      return new Media({ url })
     }
   }
 
@@ -167,13 +166,6 @@ class Track {
 
   get artwork () {
     return this.album.artwork
-  }
-}
-
-class UnknownTrack {
-  constructor (url) {
-    this.url = url
-    this.type = 'track'
   }
 }
 
