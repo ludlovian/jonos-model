@@ -15,6 +15,7 @@
   "license": "ISC",
   "dependencies": {
     "@ludlovian/debug": "github:ludlovian/debug",
+    "@ludlovian/lock": "github:ludlovian/lock",
     "@ludlovian/signal-extra": "github:ludlovian/signal-extra",
     "@lukeed/ms": "^2.0.2",
     "@preact/signals-core": "^1.6.0",

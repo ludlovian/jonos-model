@@ -2,6 +2,7 @@ import { batch } from '@preact/signals-core'
 
 import Debug from '@ludlovian/debug'
 import addSignals from '@ludlovian/signal-extra/add-signals'
+import Lock from '@ludlovian/lock'
 
 import ApiPlayer from 'jonos-api'
 
@@ -9,7 +10,7 @@ import Player from './player.mjs'
 
 export default class Players {
   #debug = Debug('jonos-model:players')
-  isStarting
+  #startStopLock = new Lock() // to serialise starting & stopping
 
   constructor () {
     addSignals(this, {
@@ -33,17 +34,16 @@ export default class Players {
     if ('players' in data) this.setPlayers(data.players)
   }
 
-  async start () {
-    if (this.isStarting) return this.isStarting
-    this.isStarting = (async () => {
+  start () {
+    return this.#startStopLock.exec(async () => {
       if (!this.players.length) {
         await this.buildAll()
       }
+      if (this.allListening) return
+
       this.#debug('Players starting')
       await Promise.all(this.players.map(p => p.start()))
-      this.isStarting = undefined
-    })()
-    return this.isStarting
+    })
   }
 
   async buildAll () {
@@ -51,20 +51,22 @@ export default class Players {
     this.setPlayers(players)
   }
 
-  async stop () {
-    if (!this.someListening) return
-    await Promise.all(this.players.map(p => p.stop()))
-    this.#debug('Players stopped')
+  stop () {
+    return this.#startStopLock.exec(async () => {
+      if (!this.someListening) return
+      await Promise.all(this.players.map(p => p.stop()))
+      this.#debug('Players stopped')
+    })
   }
 
   async reset () {
-    const isListening = this.isListening
-    if (isListening) await this.stop()
+    const wasListening = this.someListening
+    if (wasListening) await this.stop()
 
     this.players = []
     await this.buildAll()
 
-    if (isListening) await this.start()
+    if (wasListening) await this.start()
   }
 
   setPlayers (players) {

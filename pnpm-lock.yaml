@@ -11,6 +11,9 @@ importers:
       '@ludlovian/debug':
         specifier: github:ludlovian/debug
         version: https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994
+      '@ludlovian/lock':
+        specifier: github:ludlovian/lock
+        version: https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c
       '@ludlovian/signal-extra':
         specifier: github:ludlovian/signal-extra
         version: https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47
@@ -22,7 +25,7 @@ importers:
         version: 1.6.0
       jonos-api:
         specifier: github:ludlovian/jonos-api
-        version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/40d5155da62b21f5a1f71bce73599e3295b16ae1
+        version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/599326fe3b230a520240fc35ba3ee9c59fdafb05
       pixutil:
         specifier: github:ludlovian/pixutil
         version: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4
@@ -31,7 +34,7 @@ importers:
         version: https://codeload.github.com/ludlovian/sortby/tar.gz/fbe088a79770376e4bdaa7868b53f10863ea5ca5
       timer:
         specifier: github:ludlovian/timer
-        version: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac
+        version: https://codeload.github.com/ludlovian/timer/tar.gz/63ae96450a017484acbe31df7519b42e141967fd
 
 packages:
 
@@ -42,6 +45,10 @@ packages:
   '@ludlovian/diff-object@https://codeload.github.com/ludlovian/diff-object/tar.gz/d86d2386f521357b6190c5f4b35a01830ac9a38c':
     resolution: {tarball: https://codeload.github.com/ludlovian/diff-object/tar.gz/d86d2386f521357b6190c5f4b35a01830ac9a38c}
     version: 0.3.0
+
+  '@ludlovian/lock@https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c':
+    resolution: {tarball: https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c}
+    version: 0.1.0
 
   '@ludlovian/signal-extra@https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47':
     resolution: {tarball: https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47}
@@ -58,9 +65,9 @@ packages:
     resolution: {tarball: https://codeload.github.com/ludlovian/bouncer/tar.gz/d6154cb3a3efa3783f36877b1eadd8599441e80e}
     version: 2.0.1
 
-  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/40d5155da62b21f5a1f71bce73599e3295b16ae1:
-    resolution: {tarball: https://codeload.github.com/ludlovian/jonos-api/tar.gz/40d5155da62b21f5a1f71bce73599e3295b16ae1}
-    version: 0.2.6
+  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/599326fe3b230a520240fc35ba3ee9c59fdafb05:
+    resolution: {tarball: https://codeload.github.com/ludlovian/jonos-api/tar.gz/599326fe3b230a520240fc35ba3ee9c59fdafb05}
+    version: 0.3.1
 
   parsley@https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa:
     resolution: {tarball: https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa}
@@ -74,9 +81,9 @@ packages:
     resolution: {tarball: https://codeload.github.com/ludlovian/sortby/tar.gz/fbe088a79770376e4bdaa7868b53f10863ea5ca5}
     version: 1.0.1
 
-  timer@https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac:
-    resolution: {tarball: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac}
-    version: 2.0.2
+  timer@https://codeload.github.com/ludlovian/timer/tar.gz/63ae96450a017484acbe31df7519b42e141967fd:
+    resolution: {tarball: https://codeload.github.com/ludlovian/timer/tar.gz/63ae96450a017484acbe31df7519b42e141967fd}
+    version: 2.1.0
 
 snapshots:
 
@@ -85,6 +92,8 @@ snapshots:
   '@ludlovian/diff-object@https://codeload.github.com/ludlovian/diff-object/tar.gz/d86d2386f521357b6190c5f4b35a01830ac9a38c':
     dependencies:
       pixutil: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4
+
+  '@ludlovian/lock@https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c': {}
 
   '@ludlovian/signal-extra@https://codeload.github.com/ludlovian/signal-extra/tar.gz/43342d7eef25e7039fd1f8db2792af210cbbdc47':
     dependencies:
@@ -98,15 +107,16 @@ snapshots:
 
   bouncer@https://codeload.github.com/ludlovian/bouncer/tar.gz/d6154cb3a3efa3783f36877b1eadd8599441e80e:
     dependencies:
-      timer: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac
+      timer: https://codeload.github.com/ludlovian/timer/tar.gz/63ae96450a017484acbe31df7519b42e141967fd
 
-  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/40d5155da62b21f5a1f71bce73599e3295b16ae1:
+  jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/599326fe3b230a520240fc35ba3ee9c59fdafb05:
     dependencies:
       '@ludlovian/debug': https://codeload.github.com/ludlovian/debug/tar.gz/52c340a997e7be86a5c1d6e3747c3e79f8caa994
+      '@ludlovian/lock': https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c
       '@lukeed/ms': 2.0.2
       parsley: https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa
       pixutil: https://codeload.github.com/ludlovian/pixutil/tar.gz/016ab644da877cfc6c169f3320d40d7f7b079dc4
-      timer: https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac
+      timer: https://codeload.github.com/ludlovian/timer/tar.gz/63ae96450a017484acbe31df7519b42e141967fd
 
   parsley@https://codeload.github.com/ludlovian/parsley/tar.gz/6432803931c906587420e66b160dab74226e60aa: {}
 
@@ -114,4 +124,4 @@ snapshots:
 
   sortby@https://codeload.github.com/ludlovian/sortby/tar.gz/fbe088a79770376e4bdaa7868b53f10863ea5ca5: {}
 
-  timer@https://codeload.github.com/ludlovian/timer/tar.gz/22b2e247282c4275af5ff1b5dbd584c42397fdac: {}
+  timer@https://codeload.github.com/ludlovian/timer/tar.gz/63ae96450a017484acbe31df7519b42e141967fd: {}

@@ -1,4 +1,3 @@
-import util from 'node:util'
 import assert from 'node:assert'
 
 import { batch } from '@preact/signals-core'
@@ -7,13 +6,17 @@ import equal from 'pixutil/equal'
 import sleep from 'pixutil/sleep'
 import Debug from '@ludlovian/debug'
 import addSignals from '@ludlovian/signal-extra/add-signals'
+import Lock from '@ludlovian/lock'
 
 import ApiPlayer from 'jonos-api'
 
 import verifyCall from './verify-call.mjs'
 
+const customInspect = Symbol.for('nodejs.util.inspect.custom')
+
 export default class Player {
   #players
+  #startStopLock = new Lock()
   #isReady
   #api
   #debug = () => {}
@@ -61,7 +64,7 @@ export default class Player {
     this.#debug('Created player %s on %s', this.name, this.url)
   }
 
-  [util.inspect.custom] (depth, opts) {
+  [customInspect] (depth, opts) {
     if (depth < 0) return opts.stylize('[Player]', 'special')
     return `Player { ${opts.stylize(this.name, 'special')} }`
   }
@@ -72,7 +75,7 @@ export default class Player {
 
   handleError (err) {
     console.error('Player: %s - %o', this.name, err)
-    this.error = err
+    this.error = this.error ?? err
   }
 
   updatePlayer (data) {
@@ -95,24 +98,21 @@ export default class Player {
     this.#api.removeAllListeners()
   }
 
-  async start () {
-    await this.isReady
-    await this.update()
+  start () {
+    return this.#startStopLock.exec(async () => {
+      if (this.listening) return
+      await this.#api.startListening()
+      await this.update()
+      this.listening = true
+    })
   }
 
-  get isReady () {
-    if (this.#isReady) return this.#isReady
-    this.#isReady = this.#api.startListening()
-    this.listening = true
-  }
-
-  async stop () {
-    if (this.#isReady === undefined) return
-    await this.#isReady
-    if (this.#isReady === undefined) return
-    this.#isReady = undefined
-    this.listening = false
-    await this.#api.stopListening()
+  stop () {
+    return this.#startStopLock.exec(async () => {
+      if (!this.listening) return
+      await this.#api.stopListening()
+      this.listening = false
+    })
   }
 
   async update () {
@@ -127,7 +127,7 @@ export default class Player {
   // --------------- Verifying API ---------------
 
   async joinGroup (leader) {
-    await this.isReady
+    await this.start()
     assert.ok(leader instanceof Player)
     assert.ok(!this.hasFollowers, 'Must not already have followers')
     const fn = () => this.#api.joinGroup(leader.uuid)
@@ -137,7 +137,7 @@ export default class Player {
   }
 
   async startOwnGroup () {
-    await this.isReady
+    await this.start()
     assert.ok(!this.isLeader, 'Must not already be a leader')
     const fn = () => this.#api.startOwnGroup()
     const verify = () => this.isLeader
@@ -146,7 +146,7 @@ export default class Player {
   }
 
   async setVolume (vol) {
-    await this.isReady
+    await this.start()
     const fn = () => this.#api.setVolume(vol)
     const verify = () => this.volume === vol
     const msg = `Setting volume for ${this.name}`
@@ -154,7 +154,7 @@ export default class Player {
   }
 
   async setMute (mute) {
-    await this.isReady
+    await this.start()
     const fn = () => this.#api.setMute(!!mute)
     const verify = () => this.mute === !!mute
     const msg = `Setting mute for ${this.name}`
@@ -162,7 +162,7 @@ export default class Player {
   }
 
   async play () {
-    await this.isReady
+    await this.start()
     const fn = () => this.#api.play()
     const verify = () => this.isPlaying
     const msg = `Start play for ${this.name}`
@@ -170,7 +170,7 @@ export default class Player {
   }
 
   async pause () {
-    await this.isReady
+    await this.start()
     const fn = () => this.#api.pause()
     const verify = () => !this.isPlaying
     const msg = `Pausing play for ${this.name}`

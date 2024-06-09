@@ -18,19 +18,25 @@ class Model {
 
   constructor () {
     addSignals(this, {
-      listeners: 0
+      listeners: 0,
+      error: undefined
     })
   }
 
   #checkListeners () {
-    if (this.listeners === 0) {
+    const listeners = this.listeners
+
+    // we have no listeners, so set the timeout going
+    if (listeners === 0) {
       this.#idleTimer.refresh()
-    } else {
-      this.#idleTimer.cancel()
-      if (!this.isStarting && !this.players.allListening) {
-        this.players.start()
-      }
+      return
     }
+
+    // we have some listeners so start if necessary
+    this.#idleTimer.cancel()
+    this.players.start().catch(err => {
+      this.error = this.error ?? err
+    })
   }
 
   async start () {
