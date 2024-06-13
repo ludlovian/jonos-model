@@ -49,6 +49,7 @@ export default class Player {
       isPlaying: false,
       playMode: '',
       trackUri: '',
+      trackDuration: undefined,
       trackMetadata: '',
       trackDetails: undefined,
       error: undefined,
