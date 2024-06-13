@@ -1,38 +1,15 @@
-import process from 'node:process'
+import configure from '@ludlovian/configure'
 
-import { parse as parseMs } from '@lukeed/ms'
-import camelCase from 'pixutil/camel-case'
-import guess from 'pixutil/guess'
-
-const PREFIX = 'JONOS_'
-
-const defaults = {
+export default configure('JONOS_', {
   libraryRoot: './library/files',
   libraryRootCifs: 'x-file-cifs://data2.local/data/',
   mediaRoot: './library/',
   mediaFile: 'media.json',
 
   callRetries: 3,
-  callVerifyTimeout: parseMs('3s'),
+  callVerifyTimeout: '3s',
 
-  idleTimeout: parseMs('10s')
-}
+  idleTimeout: '10s',
 
-function envVars (prefix) {
-  return Object.fromEntries(
-    Object.entries(process.env)
-      .filter(([key]) => key.startsWith(prefix))
-      .map(([key, value]) => [camelCase(key.slice(prefix.length)), value])
-  )
-}
-
-function convertObject (o) {
-  return Object.fromEntries(
-    Object.entries(o).map(([key, value]) => [key, guess(value)])
-  )
-}
-
-export default {
-  ...defaults,
-  ...convertObject(envVars(PREFIX))
-}
+  minSearchWord: 3
+})

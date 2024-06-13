@@ -1,7 +1,7 @@
 import { effect } from '@preact/signals-core'
 
 import Debug from '@ludlovian/debug'
-import Timer from 'timer'
+import Timer from '@ludlovian/timer'
 import addSignals from '@ludlovian/signal-extra/add-signals'
 
 import config from './config.mjs'

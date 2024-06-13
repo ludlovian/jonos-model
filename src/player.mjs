@@ -1,18 +1,20 @@
 import assert from 'node:assert'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 import { batch } from '@preact/signals-core'
 
-import equal from 'pixutil/equal'
-import sleep from 'pixutil/sleep'
+import equal from '@ludlovian/equal'
 import Debug from '@ludlovian/debug'
 import addSignals from '@ludlovian/signal-extra/add-signals'
 import Lock from '@ludlovian/lock'
-
-import ApiPlayer from 'jonos-api'
+import ApiPlayer from '@ludlovian/jonos-api'
 
 import verifyCall from './verify-call.mjs'
 
 const customInspect = Symbol.for('nodejs.util.inspect.custom')
+
+const playerServices = ['AVTransport', 'RenderingControl']
+const systemServices = ['ZoneGroupTopology']
 
 export default class Player {
   #players
@@ -24,10 +26,13 @@ export default class Player {
   constructor (players, url, data = {}) {
     this.#players = players
     this.#api = new ApiPlayer(url)
-    this.#api
-      .on('player', this.updatePlayer.bind(this))
-      .on('system', players.updateSystem.bind(players))
-      .on('error', this.handleError.bind(this))
+    for (const svc of playerServices) {
+      this.#api.on(svc, this.updatePlayer.bind(this))
+    }
+    for (const svc of systemServices) {
+      this.#api.on(svc, players.updateSystem.bind(players))
+    }
+    this.#api.on('error', this.handleError.bind(this))
 
     addSignals(this, {
       // static
@@ -45,6 +50,7 @@ export default class Player {
       playMode: '',
       trackUri: '',
       trackMetadata: '',
+      trackDetails: undefined,
       error: undefined,
       listening: false,
 
@@ -95,7 +101,9 @@ export default class Player {
   }
 
   detach () {
-    this.#api.removeAllListeners()
+    for (const svc of [...playerServices, ...systemServices, 'error']) {
+      this.#api.removeAllListeners(svc)
+    }
   }
 
   start () {

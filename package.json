@@ -14,14 +14,19 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@ludlovian/configure": "github:ludlovian/configure",
     "@ludlovian/debug": "github:ludlovian/debug",
+    "@ludlovian/equal": "github:ludlovian/equal",
+    "@ludlovian/jonos-api": "github:ludlovian/jonos-api",
     "@ludlovian/lock": "github:ludlovian/lock",
     "@ludlovian/signal-extra": "github:ludlovian/signal-extra",
-    "@lukeed/ms": "^2.0.2",
-    "@preact/signals-core": "^1.6.0",
-    "jonos-api": "github:ludlovian/jonos-api",
-    "pixutil": "github:ludlovian/pixutil",
-    "sortby": "github:ludlovian/sortby",
-    "timer": "github:ludlovian/timer"
+    "@ludlovian/sortby": "github:ludlovian/sortby",
+    "@ludlovian/timer": "github:ludlovian/timer"
+  },
+  "devDependencies": {
+    "@preact/signals-core": "^1.6.1"
+  },
+  "peerDependencies": {
+    "@preact/signals-core": "^1.6.1"
   }
 }

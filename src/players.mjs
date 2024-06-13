@@ -4,7 +4,7 @@ import Debug from '@ludlovian/debug'
 import addSignals from '@ludlovian/signal-extra/add-signals'
 import Lock from '@ludlovian/lock'
 
-import ApiPlayer from 'jonos-api'
+import ApiPlayer from '@ludlovian/jonos-api'
 
 import Player from './player.mjs'
 
@@ -27,6 +27,11 @@ export default class Players {
       someListening: () =>
         this.players.length && this.players.some(p => p.listening)
     })
+  }
+
+  hardReset () {
+    ApiPlayer.hardReset()
+    this.players = []
   }
 
   updateSystem (data) {
@@ -59,30 +64,19 @@ export default class Players {
     })
   }
 
-  async reset () {
-    const wasListening = this.someListening
-    if (wasListening) await this.stop()
-
-    this.players = []
-    await this.buildAll()
-
-    if (wasListening) await this.start()
-  }
-
   setPlayers (players) {
     batch(() => {
       let count = 0
       if (players.length < this.players.length) {
         this.#debug('Players changed unexpectedly - resetting')
-        this.players.forEach(p => p.detach())
-        this.players = []
+        this.hardReset()
       }
 
       for (const { url, fullName, uuid, leaderUuid } of players) {
         let player = this.byUuid.get(uuid)
         if (!player) {
           count++
-          player = new Player(this, url, { fullName, uuid })
+          player = new Player(this, url, { fullName, uuid, leaderUuid })
           this.players = [...this.players, player]
         }
         player.updatePlayer({ leaderUuid })
