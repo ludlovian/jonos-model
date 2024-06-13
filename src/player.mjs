@@ -26,13 +26,11 @@ export default class Player {
   constructor (players, url, data = {}) {
     this.#players = players
     this.#api = new ApiPlayer(url)
-    for (const svc of playerServices) {
-      this.#api.on(svc, this.updatePlayer.bind(this))
-    }
-    for (const svc of systemServices) {
-      this.#api.on(svc, players.updateSystem.bind(players))
-    }
-    this.#api.on('error', this.handleError.bind(this))
+    this.#api
+      .on('error', this.handleError.bind(this))
+      .on('AVTransport', this.updatePlayer.bind(this))
+      .on('RenderingControl', this.updatePlayer.bind(this))
+      .on('ZoneGroupTopology', players.updateSystem.bind(players))
 
     addSignals(this, {
       // static
@@ -99,12 +97,6 @@ export default class Player {
         this.#debug(`Updated: ${updated.join(', ')}`)
       }
     })
-  }
-
-  detach () {
-    for (const svc of [...playerServices, ...systemServices, 'error']) {
-      this.#api.removeAllListeners(svc)
-    }
   }
 
   start () {
