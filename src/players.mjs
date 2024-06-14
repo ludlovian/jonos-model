@@ -54,6 +54,7 @@ export default class Players {
   async buildAll () {
     const { players } = await ApiPlayer.discover()
     this.setPlayers(players)
+    await Promise.all(this.players.map(p => p.update()))
   }
 
   stop () {
