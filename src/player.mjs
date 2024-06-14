@@ -13,9 +13,6 @@ import verifyCall from './verify-call.mjs'
 
 const customInspect = Symbol.for('nodejs.util.inspect.custom')
 
-const playerServices = ['AVTransport', 'RenderingControl']
-const systemServices = ['ZoneGroupTopology']
-
 export default class Player {
   #players
   #startStopLock = new Lock()
