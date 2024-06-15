@@ -122,6 +122,31 @@ export default class Player {
     })
   }
 
+  // --------------- Compound get logic ----------
+
+  async getPlaylist () {
+    // if we aren't a leader then return nothing
+    if (!this.isLeader) return {}
+
+    const { mediaUri } = await this.api.getMediaInfo()
+    // not playing anything
+    if (!mediaUri) return {}
+
+    // not a queue, so we are just playing one thing
+    if (!mediaUri.startsWith('x-rincon-queue')) {
+      return {
+        index: 0,
+        items: [mediaUri]
+      }
+    }
+    const { queue } = await this.api.getQueue()
+    const { trackNum } = await this.api.getPositionInfo()
+    return {
+      index: trackNum - 1,
+      items: queue
+    }
+  }
+
   // --------------- Verifying API ---------------
 
   async joinGroup (leader) {
