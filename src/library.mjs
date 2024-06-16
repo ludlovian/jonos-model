@@ -147,7 +147,7 @@ class Album {
   artist
   title
   tracks
-  artwork
+  #artwork
   // private attributes not used yet
   #genre
 
@@ -187,7 +187,7 @@ class Album {
     this.artist = data.artist
     this.title = data.title
     this.#genre = data.genre
-    this.artwork = data.artwork
+    this.#artwork = data.artwork
   }
 
   get library () {
@@ -200,6 +200,10 @@ class Album {
 
   get genre () {
     return this.#genre
+  }
+
+  get artwork () {
+    return this.#artwork
   }
 
   toJSON () {
@@ -267,7 +271,7 @@ class Media {
   url
   title
   type
-  artwork
+  #artwork
 
   static async loadFromFile (library) {
     const root = resolve(config.mediaRoot)
@@ -287,11 +291,15 @@ class Media {
     this.url = data.url
     this.title = data.title
     this.type = data.type
-    this.artwork = data.artwork
+    this.#artwork = data.artwork
   }
 
   get library () {
     return this.#library
+  }
+
+  get artwork () {
+    return this.#artwork
   }
 
   get searchText () {
