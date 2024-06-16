@@ -32,9 +32,9 @@ export default class Library {
 
   async scan () {
     this.scanning = true
-    this.media = await Media.load()
-    this.albums = []
+    this.media = await Media.load(this)
     const root = resolve(config.libraryRoot)
+    this.albums = []
     for await (const mdFile of scanDir(root)) {
       const album = await Album.read(mdFile, { root, library: this })
       this.albums = [...this.albums, album]
