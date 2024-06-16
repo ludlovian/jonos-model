@@ -1,7 +1,7 @@
 import { batch } from '@preact/signals-core'
 
 import Debug from '@ludlovian/debug'
-import addSignals from '@ludlovian/signal-extra/add-signals'
+import signalbox from '@ludlovian/signalbox'
 import Lock from '@ludlovian/lock'
 
 import ApiPlayer from '@ludlovian/jonos-api'
@@ -9,13 +9,19 @@ import ApiPlayer from '@ludlovian/jonos-api'
 import Player from './player.mjs'
 
 export default class Players {
+  #model
   #debug = Debug('jonos-model:players')
   #startStopLock = new Lock() // to serialise starting & stopping
 
-  constructor () {
-    addSignals(this, {
-      players: [],
+  constructor (model) {
+    this.#model = model
 
+    signalbox(this, {
+      // actual data
+      players: [],
+      _error: undefined,
+
+      // derived
       byUuid: () => new Map(this.players.map(p => [p.uuid, p])),
       byUrl: () => new Map(this.players.map(p => [p.url, p])),
       byName: () => new Map(this.players.map(p => [p.name, p])),
@@ -25,8 +31,14 @@ export default class Players {
       allListening: () =>
         this.players.length && this.players.every(p => p.listening),
       someListening: () =>
-        this.players.length && this.players.some(p => p.listening)
+        this.players.length && this.players.some(p => p.listening),
+
+      error: () => this._error ?? this.players.find(p => p.error)?.error
     })
+  }
+
+  get model () {
+    return this.#model
   }
 
   hardReset () {

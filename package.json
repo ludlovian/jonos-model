@@ -19,9 +19,11 @@
     "@ludlovian/equal": "github:ludlovian/equal",
     "@ludlovian/jonos-api": "github:ludlovian/jonos-api",
     "@ludlovian/lock": "github:ludlovian/lock",
-    "@ludlovian/signal-extra": "github:ludlovian/signal-extra",
+    "@ludlovian/parsley": "github:ludlovian/parsley",
+    "@ludlovian/signalbox": "github:ludlovian/signalbox",
     "@ludlovian/sortby": "github:ludlovian/sortby",
-    "@ludlovian/timer": "github:ludlovian/timer"
+    "@ludlovian/timer": "github:ludlovian/timer",
+    "@ludlovian/until-signal": "github:ludlovian/until-signal"
   },
   "devDependencies": {
     "@preact/signals-core": "^1.6.1"

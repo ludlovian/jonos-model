@@ -2,27 +2,31 @@ import { readdir, readFile } from 'node:fs/promises'
 import { resolve, dirname, relative, join } from 'node:path'
 
 import sortBy from '@ludlovian/sortby'
-import addSignals from '@ludlovian/signal-extra/add-signals'
+import signalbox from '@ludlovian/signalbox'
 
 import config from './config.mjs'
 
 export default class Library {
-  constructor () {
-    addSignals(this, {
+  #model
+  constructor (model) {
+    this.#model = model
+    signalbox(this, {
+      // actual data
+      scanning: false,
       albums: [],
-      albumById: () => new Map(this.albums.map(a => [a.id, a])),
-
-      tracks: () => this.albums.map(a => a.tracks).flat(),
-      trackById: () => new Map(this.tracks.map(t => [t.id, t])),
-      trackByUrl: () => new Map(this.tracks.map(t => [t.url, t])),
-
       media: [],
-      mediaById: () => new Map(this.media.map(m => [m.id, m])),
-      mediaByUrl: () => new Map(this.media.map(m => [m.url, m])),
+      artworkByUrl: new Map(),
 
-      wordsToItems: () => this.#wordsToItems(),
+      // derived lookups
+      tracks: () => this.albums.map(a => a.tracks).flat(),
+      mediaByUrl: () =>
+        new Map([
+          ...this.albums.map(a => [a.url, a]),
+          ...this.tracks.map(t => [t.url, t]),
+          ...this.media.map(m => [m.url, m])
+        ]),
 
-      scanning: false
+      wordsToMedia: () => this.#wordsToMedia()
     })
   }
 
@@ -30,30 +34,17 @@ export default class Library {
     this.scanning = true
     this.media = await Media.load()
     this.albums = []
-    const rootDir = resolve(config.libraryRoot)
-    for await (const mdFile of scanDir(rootDir)) {
-      const album = await Album.read(mdFile, rootDir)
+    const root = resolve(config.libraryRoot)
+    for await (const mdFile of scanDir(root)) {
+      const album = await Album.read(mdFile, { root, library: this })
       this.albums = [...this.albums, album]
     }
     this.albums = this.albums.sort(sortBy('artist').thenBy('title'))
     this.scanning = false
   }
 
-  locate (url) {
-    url = url + ''
-    if (url.startsWith('x-file-cifs:')) {
-      return this.trackByUrl.get(url)
-    } else {
-      const urls = [url, url.split(':')[0]]
-      for (const url of urls) {
-        const media = this.mediaByUrl.get(url)
-        if (media) return media
-      }
-    }
-  }
-
-  #wordsToItems (minLength = config.minSearchWord) {
-    const wordsToItem = new Map()
+  #wordsToMedia (minLength = config.minSearchWord) {
+    const wordsToMedia = new Map()
     const items = [...this.albums, ...this.media]
     for (const item of items) {
       const words = new Set(
@@ -64,21 +55,17 @@ export default class Library {
       )
 
       for (const word of words) {
-        linkWordToItem(word, item)
+        let set = wordsToMedia.get(word)
+        if (!set) wordsToMedia.set(word, (set = new Set()))
+        set.add(item)
       }
     }
 
-    return wordsToItem
-
-    function linkWordToItem (word, item) {
-      let set = wordsToItem.get(word)
-      if (!set) wordsToItem.set(word, (set = new Set()))
-      set.add(item)
-    }
+    return wordsToMedia
   }
 
   search (text) {
-    const wordsToItems = this.wordsToItems
+    const wordsToMedia = this.wordsToMedia
 
     const searchWords = new Set(
       text
@@ -91,161 +78,177 @@ export default class Library {
     if (!searchWords.size) return []
 
     // the library of index words
-    const allWords = new Set(wordsToItems.keys())
+    const allWords = [...wordsToMedia.keys()]
 
-    const found = intersectAll(
-      [...searchWords].map(getItemsMatchingPartialWord)
-    )
-
-    return [...found]
-      .map(({ type, id }) => ({ type, id }))
-      .sort(sortBy('type').thenBy('id'))
-
-    function getItemsMatchingPartialWord (partial) {
-      const words = [...allWords].filter(w => w.includes(partial))
-      return unionAll(words.map(w => wordsToItems.get(w)))
-    }
-
-    function unionAll (sets) {
-      let result = new Set()
-      for (const set of sets) {
-        if (set) result = result.union(set)
+    // check each search word in turn, and find the intersection
+    // of media items
+    let result
+    for (const partialWord of searchWords) {
+      const matchingWords = allWords.filter(w => w.includes(partialWord))
+      let matchingItems = new Set()
+      for (const word of matchingWords) {
+        const items = wordsToMedia.get(word)
+        matchingItems = matchingItems.union(items)
       }
-      return result
+      result = result ? result.intersection(matchingItems) : matchingItems
     }
-
-    function intersectAll (sets) {
-      let result
-      for (const set of sets) {
-        if (!set) return new Set()
-        result = result ? result.intersect(set) : set
-      }
-      return result
-    }
+    return [...result].sort(sortBy('url'))
   }
 }
 
+// Album
+//
+// Represents a logical collection of tracks from the local
+// library
+//
+// URL is the sonos directory (with trailing slash)
+
 class Album {
-  root
-  id
+  // parent link
+  #library
+  // public attributes
+  url
   artist
-  genre
   title
   tracks
+  // private attributes not used yet
+  #genre
 
-  static async read (mdFile, root) {
+  static async read (mdFile, { root, library }) {
     const md = JSON.parse(await readFile(mdFile, 'utf8'))
     const dir = dirname(mdFile)
-    return new Album(md, { root, dir })
+    return new Album(md, { root, dir, library })
   }
 
-  constructor (md, { root, dir }) {
-    this.root = root
-    this.id = relative(root, dir)
+  constructor (md, { root, dir, library }) {
+    this.#library = library
+    const relDir = relative(root, dir)
+    this.url = new URL(relDir + '/', config.libraryRootCifs).href
     this.artist = md.albumArtist
-    this.genre = md.genre
     this.title = md.album
+    this.#genre = md.genre
+    this.library.artworkByUrl.set(this.url, join(dir, 'cover.jpg'))
     this.tracks = (md.tracks ?? [])
       .sort(sortBy('discNumber').thenBy('trackNumber'))
       .map((trackMD, index) => new Track(trackMD, { album: this, index }))
   }
 
-  get type () {
-    return 'album'
-  }
-
-  get dir () {
-    return join(this.root, this.id)
+  get library () {
+    return this.#library
   }
 
   get artwork () {
-    return join(this.root, this.id, 'cover.jpg')
-  }
-
-  get url () {
-    return new URL(this.id, config.libraryRootCifs).href
+    return this.library.artworkByUrl.get(this.url)
   }
 
   get searchText () {
-    return `${this.artist} ${this.title} ${this.genre ?? ''}`
+    return `${this.artist} ${this.title} ${this.#genre ?? ''}`
+  }
+
+  toJSON () {
+    return { ...this, tracks: this.tracks.map(t => t.toJSON()) }
   }
 }
 
+// Track
+// Represents a library track
+// Idenitfied by the Sonos URL
+
 class Track {
+  // link to parent
   #album
-  index
-  #file
+  // public attributes
+  url
   title
-  discNumber
-  trackNumber
-  artist
+
+  // private attributes not used (yet)
+  #index
+  #file
+  #discNumber
+  #trackNumber
+  #artists // array
+  #artist // string or undefined
 
   constructor (md, { album, index }) {
+    this.url = new URL(md.file, album.url).href
+    this.title = md.title
     this.#album = album
     this.#file = md.file
-    this.index = index
-    this.title = md.title
-    this.discNumber = md.discNumber
-    this.trackNumber = md.trackNumber
-    if (md.artist) {
-      if (Array.isArray(md.artist)) {
-        this.artist = md.artist
-      } else {
-        this.artist = [md.artist]
-      }
-    }
-  }
-
-  get type () {
-    return 'track'
-  }
-
-  get id () {
-    return join(this.album.id, this.#file)
+    this.#index = index
+    this.#discNumber = md.discNumber
+    this.#trackNumber = md.trackNumber
+    this.#artists = [md.artist ?? []].flat()
+    this.library.artworkByUrl.set(this.url, this.album.artwork)
   }
 
   get album () {
     return this.#album
   }
 
-  get file () {
-    return join(this.album.dir, this.#file)
-  }
-
-  get url () {
-    return new URL(this.id, config.libraryRootCifs).href
+  get library () {
+    return this.album.library
   }
 
   get artwork () {
-    return this.album.artwork
+    return this.library.artworkByUrl.get(this.url)
+  }
+
+  toJSON () {
+    return { ...this }
   }
 }
 
+// Media
+// Represents media other than track or albums
+// This could be:
+// - radio
+// - TV
+// - webstream
+//
+// URI is the sonos version, or simply the protocol
+
 class Media {
-  id
-  type
+  #library
   url
-  artwork
   title
 
-  static async load () {
+  static async load (library) {
     const root = resolve(config.mediaRoot)
     const file = join(root, config.mediaFile)
     const md = JSON.parse(await readFile(file, 'utf8'))
     return md.map(md => {
-      const m = new Media(md, { root })
+      const m = new Media(md, { root, library })
       return m
     })
   }
 
-  constructor (data, { root } = {}) {
-    const { type, url, id, title, artwork } = data
-    Object.assign(this, { type, url, id, title })
-    if (root && artwork) this.artwork = join(root, artwork)
+  constructor (data, { root, library } = {}) {
+    this.#library = library
+    this.url = data.url
+    this.title = data.title
+    if (root && data.artwork && library) {
+      library.artworkByUrl.set(this.url, join(root, data.artwork))
+    }
+  }
+
+  get library () {
+    return this.#library
+  }
+
+  get type () {
+    const { url } = this
+    if (url.startsWith('x-rincon-mp3radio')) return 'radio'
+    if (url.startsWith('x-sonos-htastream')) return 'tv'
+    if (url.startsWith('https')) return 'web'
+    return ''
   }
 
   get searchText () {
     return `${this.type} ${this.title}`
+  }
+
+  toJSON () {
+    return { ...this }
   }
 }
 

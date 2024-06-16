@@ -3,11 +3,13 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 import { batch } from '@preact/signals-core'
 
+import Parsley from '@ludlovian/parsley'
 import equal from '@ludlovian/equal'
 import Debug from '@ludlovian/debug'
-import addSignals from '@ludlovian/signal-extra/add-signals'
+import signalbox from '@ludlovian/signalbox'
 import Lock from '@ludlovian/lock'
 import ApiPlayer from '@ludlovian/jonos-api'
+import { RADIO, QUEUE } from '@ludlovian/jonos-api/constants'
 
 import verifyCall from './verify-call.mjs'
 
@@ -29,7 +31,7 @@ export default class Player {
       .on('RenderingControl', this.updatePlayer.bind(this))
       .on('ZoneGroupTopology', players.updateSystem.bind(players))
 
-    addSignals(this, {
+    signalbox(this, {
       // static
       name: () => this.fullName.replaceAll(' ', '').toLowerCase(),
       fullName: 'Unknown',
@@ -57,7 +59,8 @@ export default class Player {
       hasFollowers: () =>
         this.isLeader
           ? this.#players.groups.get(this).some(p => p !== this)
-          : false
+          : false,
+      media: () => this.#getMediaFromUrl(this.trackUri)
     })
 
     Object.assign(this, data)
@@ -73,6 +76,10 @@ export default class Player {
 
   get api () {
     return this.#api
+  }
+
+  get players () {
+    return this.#players
   }
 
   handleError (err) {
@@ -122,6 +129,22 @@ export default class Player {
     })
   }
 
+  #getMediaFromUrl (url) {
+    const library = this.players.model.library
+    if (!url) return undefined
+    const media = library.mediaByUrl.get(url)?.toJSON()
+    // if this is also the one we are playing AND
+    // it is a radio, then extract the 'now' value
+    if (url === this.trackUri && url.startsWith(RADIO) && this.trackMetadata) {
+      const p = Parsley.from(this.trackMetadata.trim(), { safe: true })
+      if (p) {
+        const now = p.find('r:streamContent')?.text
+        if (now != null) media.now = now
+      }
+    }
+    return media
+  }
+
   // --------------- Compound get logic ----------
 
   async getPlaylist () {
@@ -133,17 +156,17 @@ export default class Player {
     if (!mediaUri) return {}
 
     // not a queue, so we are just playing one thing
-    if (!mediaUri.startsWith('x-rincon-queue')) {
+    if (!mediaUri.startsWith(QUEUE)) {
       return {
         index: 0,
-        items: [mediaUri]
+        items: [this.#getMediaFromUrl(mediaUri) ?? {}]
       }
     }
     const { queue } = await this.api.getQueue()
     const { trackNum } = await this.api.getPositionInfo()
     return {
       index: trackNum - 1,
-      items: queue
+      items: queue.map(url => this.#getMediaFromUrl(url))
     }
   }
 

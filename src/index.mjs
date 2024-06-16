@@ -2,25 +2,33 @@ import { effect } from '@preact/signals-core'
 
 import Debug from '@ludlovian/debug'
 import Timer from '@ludlovian/timer'
-import addSignals from '@ludlovian/signal-extra/add-signals'
+import signalbox from '@ludlovian/signalbox'
 
 import config from './config.mjs'
 import Players from './players.mjs'
 import Library from './library.mjs'
 
 class Model {
+  #model
   #debug = Debug('jonos-model:model')
   #idleTimer
   #dispose
 
-  players = new Players()
-  library = new Library()
+  players = new Players(this)
+  library = new Library(this)
 
-  constructor () {
-    addSignals(this, {
+  constructor (model) {
+    this.#model = model
+    signalbox(this, {
       listeners: 0,
-      error: undefined
+      _error: undefined,
+
+      error: () => this._error ?? this.players.error
     })
+  }
+
+  get model () {
+    return this.#model
   }
 
   #checkListeners () {
