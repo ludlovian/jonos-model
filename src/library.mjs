@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve, dirname, relative, join } from 'node:path'
 
 import sortBy from '@ludlovian/sortby'
@@ -15,10 +15,15 @@ export default class Library {
       scanning: false,
       albums: [],
       media: [],
-      artworkByUrl: new Map(),
 
       // derived lookups
       tracks: () => this.albums.map(a => a.tracks).flat(),
+      artworkByUrl: () =>
+        new Map(
+          [...this.albums, ...this.tracks, ...this.media]
+            .filter(x => x.artwork)
+            .map(x => [x.url, x.artwork])
+        ),
       mediaByUrl: () =>
         new Map([
           ...this.albums.map(a => [a.url, a]),
@@ -32,15 +37,34 @@ export default class Library {
 
   async scan () {
     this.scanning = true
-    this.media = await Media.load(this)
-    const root = resolve(config.libraryRoot)
     this.albums = []
-    for await (const mdFile of scanDir(root)) {
-      const album = await Album.read(mdFile, { root, library: this })
-      this.albums = [...this.albums, album]
-    }
-    this.albums = this.albums.sort(sortBy('artist').thenBy('title'))
+    this.media = await Media.loadFromFile(this)
+    const root = resolve(config.libraryRoot)
+    this.albums = await Album.loadFromDir(this, root)
     this.scanning = false
+  }
+
+  async loadFromStore () {
+    const file = join(config.mediaRoot, 'library.json')
+    const data = JSON.parse(await readFile(file, 'utf8'))
+    this.media = data.media.map(m => new Media(this, m))
+    this.albums = data.albums.map(data => {
+      const album = new Album(this, data)
+      album.tracks = data.tracks.map(t => new Track(album, t))
+      return album
+    })
+  }
+
+  async writeToStore () {
+    const media = this.media.map(media => ({ ...media }))
+    const albums = this.albums.map(album => ({
+      ...album,
+      genre: album.genre,
+      tracks: album.tracks.map(t => ({ ...t }))
+    }))
+    const file = join(config.mediaRoot, 'library.json')
+    const data = { media, albums }
+    await writeFile(file, JSON.stringify(data, null, 2))
   }
 
   locate (url) {
@@ -123,38 +147,59 @@ class Album {
   artist
   title
   tracks
+  artwork
   // private attributes not used yet
   #genre
 
-  static async read (mdFile, { root, library }) {
-    const md = JSON.parse(await readFile(mdFile, 'utf8'))
-    const dir = dirname(mdFile)
-    return new Album(md, { root, dir, library })
+  static async loadFromDir (library, root) {
+    const albums = []
+    for await (const mdFile of scanDir(root)) {
+      albums.push(await Album.fromMetadata(mdFile, { root, library }))
+    }
+    return albums.sort(sortBy('artist').thenBy('title'))
   }
 
-  constructor (md, { root, dir, library }) {
-    this.#library = library
+  static async fromMetadata (mdFile, { root, library }) {
+    const md = JSON.parse(await readFile(mdFile, 'utf8'))
+    const dir = dirname(mdFile)
     const relDir = relative(root, dir)
-    this.url = new URL(relDir + '/', config.libraryRootCifs).href
-    this.artist = md.albumArtist
-    this.title = md.album
-    this.#genre = md.genre
-    this.library.artworkByUrl.set(this.url, join(dir, 'cover.jpg'))
-    this.tracks = (md.tracks ?? [])
-      .sort(sortBy('discNumber').thenBy('trackNumber'))
-      .map((trackMD, index) => new Track(trackMD, { album: this, index }))
+    const url = new URL(relDir + '/', config.libraryRootCifs).href
+    const album = new Album(library, {
+      url,
+      artist: md.albumArtist,
+      title: md.album,
+      genre: md.genre,
+      artwork: join(dir, 'cover.jpg')
+    })
+    album.tracks = md.tracks.map(
+      t =>
+        new Track(album, {
+          url: new URL(t.file, album.url).href,
+          title: t.title
+        })
+    )
+    return album
+  }
+
+  constructor (library, data) {
+    this.#library = library
+    this.url = data.url
+    this.artist = data.artist
+    this.title = data.title
+    this.#genre = data.genre
+    this.artwork = data.artwork
   }
 
   get library () {
     return this.#library
   }
 
-  get artwork () {
-    return this.library.artworkByUrl.get(this.url)
-  }
-
   get searchText () {
     return `${this.artist} ${this.title} ${this.#genre ?? ''}`
+  }
+
+  get genre () {
+    return this.#genre
   }
 
   toJSON () {
@@ -181,24 +226,10 @@ class Track {
   url
   title
 
-  // private attributes not used (yet)
-  #index
-  #file
-  #discNumber
-  #trackNumber
-  #artists // array
-  #artist // string or undefined
-
-  constructor (md, { album, index }) {
-    this.url = new URL(md.file, album.url).href
-    this.title = md.title
+  constructor (album, data) {
     this.#album = album
-    this.#file = md.file
-    this.#index = index
-    this.#discNumber = md.discNumber
-    this.#trackNumber = md.trackNumber
-    this.#artists = [md.artist ?? []].flat()
-    this.library.artworkByUrl.set(this.url, this.album.artwork)
+    this.url = data.url
+    this.title = data.title
   }
 
   get album () {
@@ -210,7 +241,7 @@ class Track {
   }
 
   get artwork () {
-    return this.library.artworkByUrl.get(this.url)
+    return this.album.artwork
   }
 
   toJSON () {
@@ -236,25 +267,27 @@ class Media {
   url
   title
   type
+  artwork
 
-  static async load (library) {
+  static async loadFromFile (library) {
     const root = resolve(config.mediaRoot)
     const file = join(root, config.mediaFile)
     const md = JSON.parse(await readFile(file, 'utf8'))
-    return md.map(md => {
-      const m = new Media(md, { root, library })
-      return m
-    })
+    return md.map(
+      md =>
+        new Media(library, {
+          ...md,
+          artwork: md.artwork && join(root, md.artwork)
+        })
+    )
   }
 
-  constructor (data, { root, library } = {}) {
+  constructor (library, data) {
     this.#library = library
     this.url = data.url
     this.title = data.title
     this.type = data.type
-    if (root && data.artwork && library) {
-      library.artworkByUrl.set(this.url, join(root, data.artwork))
-    }
+    this.artwork = data.artwork
   }
 
   get library () {

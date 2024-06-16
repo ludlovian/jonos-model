@@ -51,7 +51,7 @@ class Model {
     // start builds the library and the player set, but
     // doesn't start listening until we have some listeners
 
-    const libraryBuild = this.library.scan()
+    const libraryBuild = this.library.loadFromStore()
     const playersBuild = this.players.buildAll()
 
     await playersBuild
