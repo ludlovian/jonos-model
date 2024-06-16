@@ -43,6 +43,18 @@ export default class Library {
     this.scanning = false
   }
 
+  locate (url) {
+    for (const key of [url, upToColon(url)]) {
+      const media = this.mediaByUrl.get(key)
+      if (media) return media
+    }
+
+    function upToColon (s) {
+      const ix = s.indexOf(':')
+      return ix < 0 ? s : s.slice(0, ix + 1)
+    }
+  }
+
   #wordsToMedia (minLength = config.minSearchWord) {
     const wordsToMedia = new Map()
     const items = [...this.albums, ...this.media]

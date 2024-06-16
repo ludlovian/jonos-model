@@ -132,10 +132,15 @@ export default class Player {
   #getMediaFromUrl (url) {
     const library = this.players.model.library
     if (!url) return undefined
-    const media = library.mediaByUrl.get(url)?.toJSON()
+    const media = library.locate(url)?.toJSON()
     // if this is also the one we are playing AND
     // it is a radio, then extract the 'now' value
-    if (url === this.trackUri && url.startsWith(RADIO) && this.trackMetadata) {
+    if (
+      media &&
+      url === this.trackUri &&
+      url.startsWith(RADIO) &&
+      this.trackMetadata
+    ) {
       const p = Parsley.from(this.trackMetadata.trim(), { safe: true })
       if (p) {
         const now = p.find('r:streamContent')?.text
