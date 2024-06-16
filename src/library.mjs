@@ -158,7 +158,15 @@ class Album {
   }
 
   toJSON () {
-    return { ...this, tracks: this.tracks.map(t => t.toJSON()) }
+    return {
+      ...this,
+      type: this.type,
+      tracks: this.tracks.map(t => t.toJSON())
+    }
+  }
+
+  get type () {
+    return 'album'
   }
 }
 
@@ -206,7 +214,11 @@ class Track {
   }
 
   toJSON () {
-    return { ...this }
+    return { ...this, type: this.type }
+  }
+
+  get type () {
+    return 'track'
   }
 }
 
@@ -223,6 +235,7 @@ class Media {
   #library
   url
   title
+  type
 
   static async load (library) {
     const root = resolve(config.mediaRoot)
@@ -238,6 +251,7 @@ class Media {
     this.#library = library
     this.url = data.url
     this.title = data.title
+    this.type = data.type
     if (root && data.artwork && library) {
       library.artworkByUrl.set(this.url, join(root, data.artwork))
     }
@@ -247,20 +261,12 @@ class Media {
     return this.#library
   }
 
-  get type () {
-    const { url } = this
-    if (url.startsWith('x-rincon-mp3radio')) return 'radio'
-    if (url.startsWith('x-sonos-htastream')) return 'tv'
-    if (url.startsWith('https')) return 'web'
-    return ''
-  }
-
   get searchText () {
     return `${this.type} ${this.title}`
   }
 
   toJSON () {
-    return { ...this }
+    return { ...this, type: this.type }
   }
 }
 
