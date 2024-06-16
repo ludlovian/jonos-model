@@ -230,7 +230,7 @@ export default class Player {
 
   // --------------- Play logic ------------------
   async playRadio (url) {
-    assert.ok(url.startsWith('x-rincon-mp3radio:'), 'Must be a radio')
+    assert.ok(url.startsWith(RADIO), 'Must be a radio')
     await this.#api.setAVTransportURI(url)
     const { isPlaying } = await this.#api.getTransportInfo()
     if (!isPlaying) await this.#api.play()
@@ -248,7 +248,7 @@ export default class Player {
     await this.#api.addUriToQueue(urls.shift())
 
     // Now switch to queue and start playing
-    await this.#api.setAVTransportURI(`x-rincon-queue:${this.uuid}#0`)
+    await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
     const { isPlaying } = await this.#api.getTransportInfo()
     if (!isPlaying) await this.#api.play()
 
@@ -284,7 +284,7 @@ export default class Player {
     }
 
     await this.#api.setAVTransportURI(mediaUri, mediaMetadata)
-    if (mediaUri.startsWith('x-rincon-queue:') && trackNum && trackPos) {
+    if (mediaUri.startsWith(QUEUE) && trackNum && trackPos) {
       await this.#api.seekTrack(trackNum)
       await this.#api.seekPos(trackPos)
     }
