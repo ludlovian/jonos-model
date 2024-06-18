@@ -237,7 +237,6 @@ export default class Player {
     let from = 0
     while (true) {
       const { queue } = await this.#api.getQueue(from, 100)
-      console.log(queue)
       result = [...result, ...queue]
       if (queue.length < 100) return result
       from += 100
