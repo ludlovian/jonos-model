@@ -231,6 +231,55 @@ export default class Player {
   }
 
   // --------------- Play logic ------------------
+
+  async getQueue () {
+    let result = []
+    let from = 0
+    while (true) {
+      const { queue } = await this.#api.getQueue(from, 100)
+      console.log(queue)
+      result = [...result, ...queue]
+      if (queue.length < 100) return result
+      from += 100
+    }
+  }
+
+  async setQueue (urls, { add, play, repeat } = {}) {
+    assert.ok(urls.length, 'Must supply an array of urls')
+    urls = [...urls]
+
+    if (!add) await this.#api.emptyQueue()
+    await this.#api.addUriToQueue(urls.shift())
+
+    await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
+    if (play) {
+      const { isPlaying } = await this.#api.getTransportInfo()
+      if (!isPlaying) await this.#api.play()
+    }
+
+    // and add the rest of the urls
+    for (const url of urls) {
+      await this.#api.addUriToQueue(url)
+    }
+
+    if (repeat !== undefined) {
+      await this.#api.setPlayMode(repeat ? 'REPEAT_ALL' : 'NORMAL')
+    }
+  }
+
+  async copy (player) {
+    assert.ok(player instanceof Player)
+    const { mediaUri, mediaMetadata } = await player.#api.getMediaInfo()
+    if (mediaUri.startsWith(QUEUE)) {
+      const { playMode } = await player.#api.getPlayMode()
+      const { repeat } = PLAYMODES[playMode] ?? {}
+      const urls = await player.getQueue()
+      this.setQueue(urls, { repeat })
+    } else {
+      await this.#api.setAVTransportURI(mediaUri, mediaMetadata)
+    }
+  }
+
   async playRadio (url) {
     assert.ok(url.startsWith(RADIO), 'Must be a radio')
     await this.#api.setAVTransportURI(url)
@@ -245,21 +294,7 @@ export default class Player {
   }
 
   async playQueue (urls, repeat = false) {
-    assert.ok(urls.length, 'Must supply an array of urls')
-    await this.#api.emptyQueue()
-    await this.#api.addUriToQueue(urls.shift())
-
-    // Now switch to queue and start playing
-    await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
-    const { isPlaying } = await this.#api.getTransportInfo()
-    if (!isPlaying) await this.#api.play()
-
-    // and add the rest of the urls
-    for (const url of urls) {
-      await this.#api.addUriToQueue(url)
-    }
-
-    await this.#api.setPlayMode(repeat ? 'REPEAT_ALL' : 'NORMAL')
+    await this.setQueue(urls, { play: true, repeat })
   }
 
   async playNotification (url, delay = 1000) {
@@ -293,4 +328,13 @@ export default class Player {
 
     if (wasPlaying) await this.#api.play()
   }
+}
+
+const PLAYMODES = {
+  NORMAL: { repeat: false, single: false, shuffle: false },
+  REPEAT_ALL: { repeat: true, single: false, shuffle: false },
+  REPEAT_ONE: { repeat: true, single: true, shuffle: false },
+  SHUFFLE_NOREPEAT: { repeat: false, single: false, shuffle: true },
+  SHUFFLE: { repeat: true, single: false, shuffle: true },
+  SHUFFLE_REPEAT_ONE: { repeat: true, single: true, shuffle: true }
 }
