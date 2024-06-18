@@ -169,7 +169,9 @@ export default class Player {
     }
     const { queue } = await this.api.getQueue()
     const { trackNum } = await this.api.getPositionInfo()
+    const { playMode } = await this.api.getPlayMode()
     return {
+      ...PLAYMODES[playMode],
       index: trackNum - 1,
       items: queue.map(url => this.#getMediaFromUrl(url))
     }
