@@ -9,7 +9,7 @@ import Debug from '@ludlovian/debug'
 import signalbox from '@ludlovian/signalbox'
 import Lock from '@ludlovian/lock'
 import ApiPlayer from '@ludlovian/jonos-api'
-import { RADIO, QUEUE } from '@ludlovian/jonos-api/constants'
+import { RADIO, QUEUE, CIFS } from '@ludlovian/jonos-api/constants'
 
 import verifyCall from './verify-call.mjs'
 
@@ -150,33 +150,6 @@ export default class Player {
     return media
   }
 
-  // --------------- Compound get logic ----------
-
-  async getPlaylist () {
-    // if we aren't a leader then return nothing
-    if (!this.isLeader) return {}
-
-    const { mediaUri } = await this.api.getMediaInfo()
-    // not playing anything
-    if (!mediaUri) return {}
-
-    // not a queue, so we are just playing one thing
-    if (!mediaUri.startsWith(QUEUE)) {
-      return {
-        index: 0,
-        items: [this.#getMediaFromUrl(mediaUri) ?? {}]
-      }
-    }
-    const { queue } = await this.api.getQueue()
-    const { trackNum } = await this.api.getPositionInfo()
-    const { playMode } = await this.api.getPlayMode()
-    return {
-      ...PLAYMODES[playMode],
-      index: trackNum - 1,
-      items: queue.map(url => this.#getMediaFromUrl(url))
-    }
-  }
-
   // --------------- Verifying API ---------------
 
   async joinGroup (leader) {
@@ -232,7 +205,7 @@ export default class Player {
 
   // --------------- Play logic ------------------
 
-  async getQueue () {
+  async getOwnQueue () {
     let result = []
     let from = 0
     while (true) {
@@ -243,22 +216,65 @@ export default class Player {
     }
   }
 
-  async setQueue (urls, { add, play, repeat } = {}) {
-    assert.ok(urls.length, 'Must supply an array of urls')
-    urls = [...urls]
-
-    if (!add) await this.#api.emptyQueue()
-    await this.#api.addUriToQueue(urls.shift())
-
-    await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
-    if (play) {
-      const { isPlaying } = await this.#api.getTransportInfo()
-      if (!isPlaying) await this.#api.play()
+  // Generic function that will return an array of the playing
+  // items - which might only be one if we are playing a radio, tv, stream
+  // or item outside a Sonos queue.
+  //
+  // We only cope with player default queues, not named or saved queues
+  //
+  async getPlaylist () {
+    const { mediaUri } = await this.#api.getMediaInfo()
+    const out = {}
+    if (!mediaUri) return { items: [] }
+    if (mediaUri.startsWith(QUEUE)) {
+      const items = await this.getOwnQueue()
+      out.items = items
+      const { trackNum, trackPos } = await this.#api.getPositionInfo()
+      out.index = trackNum - 1
+      out.pos = trackPos
+    } else {
+      out.items = [mediaUri]
     }
+    const { playMode } = await this.#api.getPlayMode()
+    Object.assign(out, { playMode }, PLAYMODES[playMode] ?? {})
+    return out
+  }
 
-    // and add the rest of the urls
-    for (const url of urls) {
-      await this.#api.addUriToQueue(url)
+  // Loads mediaURI and/or queue onto a player, and optionally
+  // plays and sets repeat mode
+  //
+  async loadMedia (urls, opts = {}) {
+    assert.ok(this.isLeader, 'Not a leader')
+    assert.ok(typeof urls === 'string' || Array.isArray(urls))
+    urls = [urls].flat()
+    assert.ok(urls.length > 0)
+
+    const { play, repeat, add } = opts
+    const isQueue = urls.length > 1 || urls[0].startsWith(CIFS)
+
+    if (isQueue) {
+      // must be a queue, so ensure we are playing the queue
+      const { mediaUri } = await this.#api.getMediaInfo()
+      if (!mediaUri.startsWith(QUEUE)) {
+        await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
+      }
+      if (!add) await this.#api.emptyQueue()
+      await this.#api.addUriToQueue(urls.shift())
+      if (play) {
+        const { isPlaying } = await this.#api.getTransportInfo()
+        if (!isPlaying) await this.#api.play()
+      }
+
+      // and add the rest of the urls
+      for (const url of urls) {
+        await this.#api.addUriToQueue(url)
+      }
+    } else {
+      await this.#api.setAVTransportURI(urls[0])
+      if (play) {
+        const { isPlaying } = await this.#api.getTransportInfo()
+        if (!isPlaying) await this.#api.play()
+      }
     }
 
     if (repeat !== undefined) {
@@ -272,28 +288,11 @@ export default class Player {
     if (mediaUri.startsWith(QUEUE)) {
       const { playMode } = await player.#api.getPlayMode()
       const { repeat } = PLAYMODES[playMode] ?? {}
-      const urls = await player.getQueue()
-      this.setQueue(urls, { repeat })
+      const urls = await player.getOwnQueue()
+      this.loadMedia(urls, { repeat })
     } else {
       await this.#api.setAVTransportURI(mediaUri, mediaMetadata)
     }
-  }
-
-  async playRadio (url) {
-    assert.ok(url.startsWith(RADIO), 'Must be a radio')
-    await this.#api.setAVTransportURI(url)
-    const { isPlaying } = await this.#api.getTransportInfo()
-    if (!isPlaying) await this.#api.play()
-  }
-
-  async playStream (url) {
-    await this.#api.setAVTransportURI(url)
-    const { isPlaying } = await this.#api.getTransportInfo()
-    if (!isPlaying) await this.#api.play()
-  }
-
-  async playQueue (urls, repeat = false) {
-    await this.setQueue(urls, { play: true, repeat })
   }
 
   async playNotification (url, delay = 1000) {
