@@ -274,16 +274,15 @@ export default class Player {
       for (const url of urls) {
         await this.#api.addUriToQueue(url)
       }
+      if (repeat !== undefined) {
+        await this.#api.setPlayMode(repeat ? 'REPEAT_ALL' : 'NORMAL')
+      }
     } else {
       await this.#api.setAVTransportURI(urls[0])
       if (play) {
         const { isPlaying } = await this.#api.getTransportInfo()
         if (!isPlaying) await this.#api.play()
       }
-    }
-
-    if (repeat !== undefined) {
-      await this.#api.setPlayMode(repeat ? 'REPEAT_ALL' : 'NORMAL')
     }
   }
 
