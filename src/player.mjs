@@ -253,6 +253,11 @@ export default class Player {
     const isQueue = urls.length > 1 || urls[0].startsWith(CIFS)
 
     if (isQueue) {
+      // we can only play known flac tracks
+      const isValidTrack = url =>
+        url?.startsWith(CIFS) && url?.endsWith('.flac')
+      assert.ok(urls.every(isValidTrack))
+
       // must be a queue, so ensure we are playing the queue
       const { mediaUri } = await this.#api.getMediaInfo()
       if (!mediaUri.startsWith(QUEUE)) {
