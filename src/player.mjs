@@ -247,6 +247,7 @@ export default class Player {
     assert.ok(this.isLeader, 'Not a leader')
     assert.ok(typeof urls === 'string' || Array.isArray(urls))
     urls = [urls].flat()
+    assert.ok(urls.every(url => url && typeof url === 'string'))
     assert.ok(urls.length > 0)
 
     const { play, repeat, add } = opts
@@ -254,13 +255,12 @@ export default class Player {
 
     if (isQueue) {
       // we can only play known flac tracks
-      const isValidTrack = url =>
-        url?.startsWith(CIFS) && url?.endsWith('.flac')
-      assert.ok(urls.every(isValidTrack))
+      const isValidTrack = url => url.startsWith(CIFS) && url.endsWith('.flac')
+      assert.ok(urls.every(url => isValidTrack(url)))
 
       // must be a queue, so ensure we are playing the queue
       const { mediaUri } = await this.#api.getMediaInfo()
-      if (!mediaUri.startsWith(QUEUE)) {
+      if (!mediaUri || !mediaUri.startsWith(QUEUE)) {
         await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
       }
       if (!add) await this.#api.emptyQueue()
