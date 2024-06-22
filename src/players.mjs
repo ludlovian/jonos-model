@@ -1,9 +1,7 @@
 import { batch } from '@preact/signals-core'
-
 import Debug from '@ludlovian/debug'
 import signalbox from '@ludlovian/signalbox'
 import Lock from '@ludlovian/lock'
-
 import ApiPlayer from '@ludlovian/jonos-api'
 
 import Player from './player.mjs'

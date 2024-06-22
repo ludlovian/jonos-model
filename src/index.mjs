@@ -1,5 +1,4 @@
 import { effect } from '@preact/signals-core'
-
 import Debug from '@ludlovian/debug'
 import Timer from '@ludlovian/timer'
 import signalbox from '@ludlovian/signalbox'

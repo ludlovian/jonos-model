@@ -6,8 +6,13 @@ export default configure('JONOS_', {
   mediaRoot: './library/',
   mediaFile: 'media.json',
 
+  // when verifying via reactive until
   callRetries: 3,
   callVerifyTimeout: '3s',
+
+  // when verifying via polling
+  callPollDelay: 250,
+  callPollCount: 3,
 
   idleTimeout: '10s',
 

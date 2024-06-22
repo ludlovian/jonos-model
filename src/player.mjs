@@ -1,17 +1,15 @@
 import assert from 'node:assert'
 import { setTimeout as sleep } from 'node:timers/promises'
-
 import { batch } from '@preact/signals-core'
-
 import Parsley from '@ludlovian/parsley'
 import equal from '@ludlovian/equal'
 import Debug from '@ludlovian/debug'
 import signalbox from '@ludlovian/signalbox'
 import Lock from '@ludlovian/lock'
 import ApiPlayer from '@ludlovian/jonos-api'
-import { RADIO, QUEUE, CIFS } from '@ludlovian/jonos-api/constants'
+import { RADIO, QUEUE, CIFS, WEB } from '@ludlovian/jonos-api/constants'
 
-import verifyCall from './verify-call.mjs'
+import { verifyCallPoll } from './verify-call.mjs'
 
 const customInspect = Symbol.for('nodejs.util.inspect.custom')
 
@@ -56,10 +54,8 @@ export default class Player {
       url: () => this.#api.url.href,
       leader: () => this.#players.byUuid.get(this.leaderUuid) ?? this,
       isLeader: () => this.leader === this,
-      hasFollowers: () =>
-        this.isLeader
-          ? this.#players.groups.get(this).some(p => p !== this)
-          : false,
+      followers: () => (this.isLeader ? this.players.groups.get(this) : [this]),
+      hasFollowers: () => this.followers.length > 1,
       media: () => this.#getMediaFromUrl(this.trackUri)
     })
 
@@ -150,60 +146,105 @@ export default class Player {
     return media
   }
 
-  // --------------- Verifying API ---------------
+  // --------------- Group Members API -----------
 
-  async joinGroup (leader) {
+  async getGroup () {
+    const { leaderUuid, memberUuids } = await this.#api.getCurrentGroup()
+    const byUuid = this.players.byUuid
+    return {
+      leader: byUuid.get(leaderUuid),
+      members: memberUuids.map(uuid => byUuid.get(uuid))
+    }
+  }
+
+  async joinGroup (leader, delay = 500) {
     await this.start()
     assert.ok(leader instanceof Player)
-    assert.ok(!this.hasFollowers, 'Must not already have followers')
-    const fn = () => this.#api.joinGroup(leader.uuid)
-    const verify = () => this.leaderUuid === leader.uuid
-    const msg = `${this.name} joining group ${leader.name}`
-    return verifyCall(fn, verify, msg)
+    if (this.hasFollowers) {
+      // kick out everyone else
+      for (const p of [...this.followers]) {
+        if (p !== this) await p.startOwnGroup()
+      }
+    }
+
+    await this.#api.joinGroup(leader.uuid)
+
+    // now check it
+    await verifyCallPoll(
+      () => this.getGroup().then(data => data.leader === leader),
+      `Adding ${this.name} to group ${leader.name}`
+    )
+    this.leaderUuid = leader.uuid
   }
 
   async startOwnGroup () {
     await this.start()
     assert.ok(!this.isLeader, 'Must not already be a leader')
-    const fn = () => this.#api.startOwnGroup()
-    const verify = () => this.isLeader
-    const msg = `${this.name} starting own group`
-    return verifyCall(fn, verify, msg)
+
+    await this.#api.startOwnGroup()
+
+    await verifyCallPoll(
+      () => this.getGroup().then(data => data.leader === this),
+      `${this.name} starting own group`
+    )
+
+    this.leaderUuid = ''
   }
+
+  // --------------- Rendering API ---------------
 
   async setVolume (vol) {
     await this.start()
-    const fn = () => this.#api.setVolume(vol)
-    const verify = () => this.volume === vol
-    const msg = `Setting volume for ${this.name}`
-    return verifyCall(fn, verify, msg)
+
+    await this.#api.setVolume(vol)
+
+    await verifyCallPoll(
+      () => this.#api.getVolume().then(d => d.volume === vol),
+      `Setting volume for ${this.name}`
+    )
+    this.volume = vol
   }
 
   async setMute (mute) {
+    mute = !!mute
     await this.start()
-    const fn = () => this.#api.setMute(!!mute)
-    const verify = () => this.mute === !!mute
-    const msg = `Setting mute for ${this.name}`
-    return verifyCall(fn, verify, msg)
+    await this.#api.setMute(mute)
+
+    await verifyCallPoll(
+      () => this.#api.getMute().then(d => d.mute === mute),
+      `Setting mute for ${this.name}`
+    )
+    this.mute = mute
   }
 
   async play () {
     await this.start()
-    const fn = () => this.#api.play()
-    const verify = () => this.isPlaying
-    const msg = `Start play for ${this.name}`
-    return verifyCall(fn, verify, msg)
+    await this.#api.play()
+
+    await verifyCallPoll(async () => {
+      const d = await this.#api.getTransportInfo()
+      if (d.isPlaying) {
+        this.playState = d.playState
+        return true
+      }
+    }, `Setting ${this.name} to play`)
   }
 
   async pause () {
     await this.start()
-    const fn = () => this.#api.pause()
-    const verify = () => !this.isPlaying
-    const msg = `Pausing play for ${this.name}`
-    return verifyCall(fn, verify, msg)
+
+    await this.#api.pause()
+
+    await verifyCallPoll(async () => {
+      const d = await this.#api.getTransportInfo()
+      if ('isPlaying' in d && !d.isPlaying) {
+        this.playState = d.playState
+        return true
+      }
+    }, `Setting ${this.name} to pause`)
   }
 
-  // --------------- Play logic ------------------
+  // --------------- Queue and media API ---------
 
   async getOwnQueue () {
     let result = []
@@ -299,11 +340,18 @@ export default class Player {
     }
   }
 
-  async playNotification (url, delay = 1000) {
+  async playNotification (url, { volume, play, delay = 1000 } = {}) {
+    assert.ok(this.isLeader, 'Not a leader')
+    assert.ok(url.startsWith(WEB) || url.startsWith(CIFS), 'Not a URL')
+
     const isPlaying = async () => (await this.#api.getTransportInfo()).isPlaying
     const wasPlaying = await isPlaying()
 
     if (wasPlaying) await this.#api.pause()
+    const oldVolumes = this.followers.map(p => [p, p.volume])
+    if (volume) {
+      await Promise.all(this.followers.map(p => p.setVolume(volume)))
+    }
 
     const { trackNum, trackPos } = await this.#api.getPositionInfo()
     const { mediaUri, mediaMetadata } = await this.#api.getMediaInfo()
@@ -328,7 +376,47 @@ export default class Player {
       await this.#api.seekPos(trackPos)
     }
 
-    if (wasPlaying) await this.#api.play()
+    if (volume) {
+      await Promise.all(oldVolumes.map(([p, v]) => p.setVolume(v)))
+    }
+
+    if (wasPlaying && play) await this.#api.play()
+  }
+
+  async createGroup (volumes) {
+    assert.ok(this.name in volumes, 'Player must be in its own group')
+    // first make sure I am a leader
+    if (!this.isLeader) {
+      await this.startOwnGroup()
+    }
+
+    // then set all the volumes
+    for (const name in volumes) {
+      const player = this.players.byName.get(name)
+      await player.setVolume(volumes[name])
+    }
+
+    // then transfer playing music to me if I'm silent
+    if (!this.isPlaying && this.players.active.length) {
+      const curr = this.players.active[0]
+      await curr.pause()
+      await this.copy(curr)
+      await this.play()
+    }
+
+    // now go through each player and make sure it is in the group
+    // or not
+    for (const player of this.players.players) {
+      if (player.name in volumes) {
+        if (player.leader !== this) {
+          await player.joinGroup(this)
+        }
+      } else {
+        if (player.leader === this) {
+          await player.startOwnGroup()
+        }
+      }
+    }
   }
 }
 
