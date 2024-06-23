@@ -17,7 +17,8 @@ export async function verifyCall (fn, verify, msg = '') {
 export async function verifyCallPoll (verify, msg = '') {
   const n = config.callPollCount
   for (let i = 0; i < n; i++) {
-    if (await verify()) return
+    const data = await verify()
+    if (data) return data
     await delay(config.callPollDelay)
   }
   throw new Error(`Failed to verify${msg ? ': ' + msg : ''}`)

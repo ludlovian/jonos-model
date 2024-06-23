@@ -38,7 +38,7 @@ export default class Player {
       model: '',
 
       // variable
-      leaderUuid: '',
+      leaderUuid: undefined,
       volume: undefined,
       mute: false,
       playState: '',
@@ -53,7 +53,7 @@ export default class Player {
 
       // derived
       url: () => this.#api.url.href,
-      leader: () => this.#players.byUuid.get(this.leaderUuid) ?? this,
+      leader: () => this.#players.byUuid.get(this.leaderUuid),
       isLeader: () => this.leader === this,
       followers: () => (this.isLeader ? this.players.groups.get(this) : [this]),
       hasFollowers: () => this.followers.length > 1,
@@ -122,7 +122,8 @@ export default class Player {
       ...(await this.#api.getDescription()),
       ...(await this.#api.getVolume()),
       ...(await this.#api.getMute()),
-      ...(await this.#api.getPositionInfo())
+      ...(await this.#api.getPositionInfo()),
+      ...(await this.#api.getCurrentGroup())
     })
   }
 
@@ -150,16 +151,15 @@ export default class Player {
   // --------------- Group Members API -----------
 
   async getGroup () {
-    const { leaderUuid, memberUuids } = await this.#api.getCurrentGroup()
     const byUuid = this.players.byUuid
+    const data = await this.#api.getCurrentGroup()
     return {
-      leader: byUuid.get(leaderUuid),
-      members: memberUuids.map(uuid => byUuid.get(uuid))
+      leader: byUuid.get(data.leaderUuid),
+      members: data.memberUuids.map(uuid => byUuid.get(uuid))
     }
   }
 
   async joinGroup (leader, delay = 500) {
-    await this.start()
     assert.ok(leader instanceof Player)
     if (this.hasFollowers) {
       // kick out everyone else
@@ -171,78 +171,70 @@ export default class Player {
     await this.#api.joinGroup(leader.uuid)
 
     // now check it
-    await verifyCallPoll(
-      () => this.getGroup().then(data => data.leader === leader),
-      `Adding ${this.name} to group ${leader.name}`
-    )
-    this.leaderUuid = leader.uuid
+    const data = await verifyCallPoll(async () => {
+      const data = await this.#api.getCurrentGroup()
+      if (data.leaderUuid === leader.uuid) return data
+    }, `Adding ${this.name} to group ${leader.name}`)
+
+    this.updatePlayer(data)
   }
 
   async startOwnGroup () {
-    await this.start()
     assert.ok(!this.isLeader, 'Must not already be a leader')
 
     await this.#api.startOwnGroup()
 
-    await verifyCallPoll(
-      () => this.getGroup().then(data => data.leader === this),
-      `${this.name} starting own group`
-    )
+    const data = await verifyCallPoll(async () => {
+      const data = await this.#api.getCurrentGroup()
+      if (data.leaderUuid === this.uuid) return data
+    }, `${this.name} starting own group`)
 
-    this.leaderUuid = ''
+    this.updatePlayer(data)
   }
 
   // --------------- Rendering API ---------------
 
   async setVolume (vol) {
-    await this.start()
-
     await this.#api.setVolume(vol)
 
-    await verifyCallPoll(
-      () => this.#api.getVolume().then(d => d.volume === vol),
-      `Setting volume for ${this.name}`
-    )
-    this.volume = vol
+    const data = await verifyCallPoll(async () => {
+      const data = await this.#api.getVolume()
+      if (data.volume === vol) return data
+    }, `Setting volume for ${this.name}`)
+    this.updatePlayer(data)
   }
 
   async setMute (mute) {
     mute = !!mute
-    await this.start()
     await this.#api.setMute(mute)
 
-    await verifyCallPoll(
-      () => this.#api.getMute().then(d => d.mute === mute),
-      `Setting mute for ${this.name}`
-    )
-    this.mute = mute
+    const data = await verifyCallPoll(async () => {
+      const data = await this.#api.getMute()
+      if (data.mute === mute) return data
+    }, `Setting mute for ${this.name}`)
+    this.updatePlayer(data)
   }
 
   async play () {
-    await this.start()
     await this.#api.play()
 
-    await verifyCallPoll(async () => {
-      const d = await this.#api.getTransportInfo()
-      if (d.isPlaying) {
-        this.playState = d.playState
-        return true
-      }
+    const data = await verifyCallPoll(async () => {
+      const data = await this.#api.getTransportInfo()
+      if (data.isPlaying) return data
     }, `Setting ${this.name} to play`)
+
+    this.updatePlayer(data)
   }
 
   async pause () {
-    await this.start()
-
     await this.#api.pause()
 
-    await verifyCallPoll(async () => {
-      const d = await this.#api.getTransportInfo()
-      if ('isPlaying' in d && !d.isPlaying) {
-        this.playState = d.playState
-        return true
-      }
+    const data = await verifyCallPoll(async () => {
+      const data = await this.#api.getTransportInfo()
+      if (data.isPlaying === false) return data
     }, `Setting ${this.name} to pause`)
+
+    this.updatePlayer(data)
   }
 
   // --------------- Queue and media API ---------
@@ -309,7 +301,7 @@ export default class Player {
       await this.#api.addUriToQueue(urls.shift())
       if (play) {
         const { isPlaying } = await this.#api.getTransportInfo()
-        if (!isPlaying) await this.#api.play()
+        if (!isPlaying) await this.play()
       }
 
       // and add the rest of the urls
@@ -323,7 +315,7 @@ export default class Player {
       await this.#api.setAVTransportURI(urls[0])
       if (play) {
         const { isPlaying } = await this.#api.getTransportInfo()
-        if (!isPlaying) await this.#api.play()
+        if (!isPlaying) await this.play()
       }
     }
   }
