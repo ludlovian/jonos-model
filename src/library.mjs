@@ -271,7 +271,7 @@ class Media {
   url
   title
   type
-  #artwork
+  artwork
 
   static async loadFromFile (library) {
     const root = resolve(config.mediaRoot)
@@ -291,15 +291,11 @@ class Media {
     this.url = data.url
     this.title = data.title
     this.type = data.type
-    this.#artwork = data.artwork
+    this.artwork = data.artwork
   }
 
   get library () {
     return this.#library
-  }
-
-  get artwork () {
-    return this.#artwork
   }
 
   get searchText () {
