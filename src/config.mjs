@@ -14,6 +14,9 @@ export default configure('JONOS_', {
   callPollDelay: 250,
   callPollCount: 3,
 
+  // when monitoring by polling
+  monitorPollDelay: 500,
+
   idleTimeout: '10s',
 
   minSearchWord: 3

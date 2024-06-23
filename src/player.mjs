@@ -10,6 +10,7 @@ import ApiPlayer from '@ludlovian/jonos-api'
 import { RADIO, QUEUE, CIFS, WEB } from '@ludlovian/jonos-api/constants'
 
 import { verifyCallPoll } from './verify-call.mjs'
+import config from './config.mjs'
 
 const customInspect = Symbol.for('nodejs.util.inspect.custom')
 
@@ -340,7 +341,8 @@ export default class Player {
     }
   }
 
-  async playNotification (url, { volume, play, delay = 1000 } = {}) {
+  async playNotification (url, opts = {}) {
+    const { volume, play, delay = config.monitorPollDelay } = opts
     assert.ok(this.isLeader, 'Not a leader')
     assert.ok(url.startsWith(WEB) || url.startsWith(CIFS), 'Not a URL')
 
