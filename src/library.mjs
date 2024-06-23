@@ -18,12 +18,6 @@ export default class Library {
 
       // derived lookups
       tracks: () => this.albums.map(a => a.tracks).flat(),
-      artworkByUrl: () =>
-        new Map(
-          [...this.albums, ...this.tracks, ...this.media]
-            .filter(x => x.artwork)
-            .map(x => [x.url, x.artwork])
-        ),
       mediaByUrl: () =>
         new Map([
           ...this.albums.map(a => [a.url, a]),
@@ -68,9 +62,17 @@ export default class Library {
   }
 
   locate (url) {
-    for (const key of [url, upToColon(url)]) {
-      const media = this.mediaByUrl.get(key)
-      if (media) return media
+    let media = this.mediaByUrl.get(url)
+    if (media !== undefined) return media
+
+    // try the template
+    media = this.mediaByUrl.get(upToColon(url))
+    if (media !== undefined) {
+      // create a new one based on the template
+      media = new Media(this, { ...media, url })
+      // and store it
+      this.media = [...this.media, media]
+      return media
     }
 
     function upToColon (s) {
