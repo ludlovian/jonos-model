@@ -149,9 +149,8 @@ class Album {
   artist
   title
   tracks
-  #artwork
-  // private attributes not used yet
-  #genre
+  artwork
+  genre
 
   static async loadFromDir (library, root) {
     const albums = []
@@ -188,8 +187,8 @@ class Album {
     this.url = data.url
     this.artist = data.artist
     this.title = data.title
-    this.#genre = data.genre
-    this.#artwork = data.artwork
+    this.genre = data.genre
+    this.artwork = data.artwork
   }
 
   get library () {
@@ -197,15 +196,7 @@ class Album {
   }
 
   get searchText () {
-    return `${this.artist} ${this.title} ${this.#genre ?? ''}`
-  }
-
-  get genre () {
-    return this.#genre
-  }
-
-  get artwork () {
-    return this.#artwork
+    return `${this.artist} ${this.title} ${this.genre ?? ''}`
   }
 
   toJSON () {
