@@ -74,7 +74,8 @@ export default class Player {
 
       // the queue of items currently being played, possibly aggregated into
       // albums, and also including the nowPlaying from radio stations
-      queue: () => this.#getQueueFromUrls()
+      queue: () => this.#getQueueFromUrls(),
+      media: () => this.#getCurrentMediaItem()
     })
 
     Object.assign(this, data)
@@ -185,6 +186,30 @@ export default class Player {
       }
     }
     return queue
+  }
+
+  #getCurrentMediaItem () {
+    if (!this.isLeader || !this.trackUrl || !this.queue) return null
+
+    // simply look for it in the queue
+    const found = this.queue.find(item => item.url === this.trackUrl)
+    if (found) return found
+
+    // perhaps it is a track inside an album
+    for (const album of this.queue) {
+      for (const track of album.tracks || []) {
+        if (track.url === this.trackUrl) {
+          return {
+            ...track,
+            album: {
+              ...album,
+              tracks: undefined
+            }
+          }
+        }
+      }
+    }
+    return null
   }
 
   // -------- Player attribute update -------------------

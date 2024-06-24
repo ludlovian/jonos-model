@@ -173,10 +173,11 @@ class Album {
       artwork: join(dir, 'cover.jpg')
     })
     album.tracks = md.tracks.map(
-      t =>
+      (t, index) =>
         new Track(album, {
           url: new URL(t.file, album.url).href,
-          title: t.title
+          title: t.title,
+          index
         })
     )
     return album
@@ -225,11 +226,13 @@ class Track {
   // public attributes
   url
   title
+  index
 
   constructor (album, data) {
     this.#album = album
     this.url = data.url
     this.title = data.title
+    this.index = data.index
   }
 
   get album () {
@@ -248,6 +251,7 @@ class Track {
     return {
       url: this.url,
       title: this.title,
+      index: this.index,
       type: this.type
     }
   }
