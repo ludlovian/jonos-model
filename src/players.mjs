@@ -14,6 +14,9 @@ export default class Players {
   constructor (model) {
     this.#model = model
 
+    this.handleErrpr = this.handleError.bind(this)
+    this.updateSystem = this.updateSystem.bind(this)
+
     signalbox(this, {
       // actual data
       players: [],
@@ -37,6 +40,11 @@ export default class Players {
 
   get model () {
     return this.#model
+  }
+
+  handleError (err) {
+    console.error('Players: %o', err)
+    this._error = this._error ?? err
   }
 
   hardReset () {

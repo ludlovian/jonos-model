@@ -1,14 +1,21 @@
 import assert from 'node:assert'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { batch } from '@preact/signals-core'
+import { batch, effect } from '@preact/signals-core'
 import Parsley from '@ludlovian/parsley'
 import equal from '@ludlovian/equal'
 import Debug from '@ludlovian/debug'
 import signalbox from '@ludlovian/signalbox'
 import Lock from '@ludlovian/lock'
 import ApiPlayer from '@ludlovian/jonos-api'
-import { RADIO, QUEUE, CIFS, WEB } from '@ludlovian/jonos-api/constants'
 
+import { QUEUE, CIFS } from '@ludlovian/jonos-api/constants'
+import {
+  isValidUrl,
+  isValidNowPlaying,
+  isValidTrackUrl,
+  isValidQueueUrl,
+  isValidNotificationUrl
+} from './valid.mjs'
 import { verifyCallPoll } from './verify-call.mjs'
 import config from './config.mjs'
 
@@ -24,11 +31,15 @@ export default class Player {
   constructor (players, url, data = {}) {
     this.#players = players
     this.#api = new ApiPlayer(url)
+
+    this.handleError = this.handleError.bind(this)
+    this.updatePlayer = this.updatePlayer.bind(this)
+
     this.#api
-      .on('error', this.handleError.bind(this))
-      .on('AVTransport', this.updatePlayer.bind(this))
-      .on('RenderingControl', this.updatePlayer.bind(this))
-      .on('ZoneGroupTopology', players.updateSystem.bind(players))
+      .on('error', this.handleError)
+      .on('AVTransport', this.updatePlayer)
+      .on('RenderingControl', this.updatePlayer)
+      .on('ZoneGroupTopology', players.updateSystem)
 
     signalbox(this, {
       // static
@@ -44,12 +55,15 @@ export default class Player {
       playState: '',
       isPlaying: false,
       playMode: '',
-      trackUri: '',
+      trackUrl: undefined,
       trackDuration: undefined,
       trackMetadata: '',
       trackDetails: undefined,
       error: undefined,
       listening: false,
+
+      // updated by effect - an array of urls currently being played
+      queueUrls: undefined,
 
       // derived
       url: () => this.#api.url.href,
@@ -57,18 +71,28 @@ export default class Player {
       isLeader: () => this.leader === this,
       followers: () => (this.isLeader ? this.players.groups.get(this) : [this]),
       hasFollowers: () => this.followers.length > 1,
-      media: () => this.#getMediaFromUrl(this.trackUri)
+
+      // the queue of items currently being played, possibly aggregated into
+      // albums, and also including the nowPlaying from radio stations
+      queue: () => this.#getQueueFromUrls()
     })
 
     Object.assign(this, data)
     this.#debug = Debug(`jonos-model:Player:${this.name}`)
-
     this.#debug('Created player %s on %s', this.name, this.url)
+
+    effect(() => this.#monitorQueueUrls())
   }
+
+  // -------- Inspect and getters -----------------------
 
   [customInspect] (depth, opts) {
     if (depth < 0) return opts.stylize('[Player]', 'special')
     return `Player { ${opts.stylize(this.name, 'special')} }`
+  }
+
+  get library () {
+    return this.players.model.library
   }
 
   get api () {
@@ -79,10 +103,91 @@ export default class Player {
     return this.#players
   }
 
+  // -------- Error handling ----------------------------
+
   handleError (err) {
     console.error('Player: %s - %o', this.name, err)
     this.error = this.error ?? err
   }
+
+  // -------- Reactions and derived attributes ----------
+
+  async #monitorQueueUrls () {
+    // effect based calculation of the urls in a players queue
+    // It is always null or an array
+    // Set to Null if the player is not a leader, has no media loaded, or
+    // has some unknown media (transiently) such as the FOLLOW or QUEUE media
+    //
+    // Otherwise we gather the list of urls currently playing
+    //
+
+    if (this.model.error) return
+    if (!this.isLeader || !isValidUrl(this.trackUrl)) {
+      this.updatePlayer({ queueUrls: null })
+      return
+    }
+
+    // if we have a queue, and it includes the current track, then we are done
+    // This will get tripped up if we change the queue externally, but will
+    // sort itself once we hit a url that we don't recognise
+    if (this.queueUrls && this.queueUrls.includes(this.trackUrl)) {
+      return
+    }
+
+    const trackUrl = this.trackUrl
+    this.getPlaylist()
+      .then(queueUrls => {
+        if (trackUrl === this.trackUrl) {
+          assert.ok(queueUrls.includes(trackUrl)) // or we infinitely loop!
+          this.updatePlayer({ queueUrls })
+        }
+      })
+      .catch(this.handleError)
+  }
+
+  #getQueueFromUrls () {
+    // Takes the existing array of urls int he queue and expands it
+    // to a structured list of library items, aggregating
+    // tracks into album subsets
+    //
+    // If the queue url is also the track url, and is a radio
+    // then we try to extract the nowPlaying attribute
+    if (!this.queueUrls) return null
+    const queue = []
+    let album
+    for (const url of this.queueUrls) {
+      const item = this.library.locate(url)
+      if (!item) continue
+
+      const itemData = item.toJSON()
+      if (item.type === 'track') {
+        if (item.album.url !== album?.url) {
+          album = { ...item.album.toJSON(), tracks: [itemData] }
+          queue.push(album)
+        } else {
+          album.tracks.push(itemData)
+        }
+      } else {
+        queue.push(itemData)
+        if (
+          item.type === 'radio' &&
+          item.url === this.trackUrl &&
+          this.trackMetadata
+        ) {
+          const elem = Parsley.from(this.trackMetadata.trim(), { safe: true })
+          if (elem) {
+            const nowPlaying = elem.find('r:streamContent')?.text
+            if (isValidNowPlaying(nowPlaying)) {
+              itemData.nowPlaying = nowPlaying
+            }
+          }
+        }
+      }
+    }
+    return queue
+  }
+
+  // -------- Player attribute update -------------------
 
   updatePlayer (data) {
     if (!data) return
@@ -99,6 +204,20 @@ export default class Player {
       }
     })
   }
+
+  async update () {
+    // a one-off update of everything. Handy when starting to listen
+
+    this.updatePlayer({
+      ...(await this.#api.getDescription()),
+      ...(await this.#api.getVolume()),
+      ...(await this.#api.getMute()),
+      ...(await this.#api.getPositionInfo()),
+      ...(await this.#api.getCurrentGroup())
+    })
+  }
+
+  // -------- Start and stop listening ------------------
 
   start () {
     return this.#startStopLock.exec(async () => {
@@ -117,37 +236,6 @@ export default class Player {
     })
   }
 
-  async update () {
-    this.updatePlayer({
-      ...(await this.#api.getDescription()),
-      ...(await this.#api.getVolume()),
-      ...(await this.#api.getMute()),
-      ...(await this.#api.getPositionInfo()),
-      ...(await this.#api.getCurrentGroup())
-    })
-  }
-
-  #getMediaFromUrl (url) {
-    const library = this.players.model.library
-    if (!url) return undefined
-    const media = library.locate(url)?.toJSON()
-    // if this is also the one we are playing AND
-    // it is a radio, then extract the 'now' value
-    if (
-      media &&
-      url === this.trackUri &&
-      url.startsWith(RADIO) &&
-      this.trackMetadata
-    ) {
-      const p = Parsley.from(this.trackMetadata.trim(), { safe: true })
-      if (p) {
-        const now = p.find('r:streamContent')?.text
-        if (now != null) media.now = now
-      }
-    }
-    return media
-  }
-
   // --------------- Group Members API -----------
 
   async getGroup () {
@@ -159,7 +247,7 @@ export default class Player {
     }
   }
 
-  async joinGroup (leader, delay = 500) {
+  async joinGroup (leader) {
     assert.ok(leader instanceof Player)
     if (this.hasFollowers) {
       // kick out everyone else
@@ -251,27 +339,21 @@ export default class Player {
   }
 
   // Generic function that will return an array of the playing
-  // items - which might only be one if we are playing a radio, tv, stream
+  // urls - which might only be one if we are playing a radio, tv, stream
   // or item outside a Sonos queue.
   //
   // We only cope with player default queues, not named or saved queues
   //
   async getPlaylist () {
     const { mediaUri } = await this.#api.getMediaInfo()
-    const out = {}
-    if (!mediaUri) return { items: [] }
-    if (mediaUri.startsWith(QUEUE)) {
-      const items = await this.getOwnQueue()
-      out.items = items
-      const { trackNum, trackPos } = await this.#api.getPositionInfo()
-      out.index = trackNum - 1
-      out.pos = trackPos
+
+    if (isValidQueueUrl(mediaUri)) {
+      return await this.getOwnQueue()
+    } else if (isValidUrl(mediaUri)) {
+      return [mediaUri]
     } else {
-      out.items = [mediaUri]
+      return []
     }
-    const { playMode } = await this.#api.getPlayMode()
-    Object.assign(out, { playMode }, PLAYMODES[playMode] ?? {})
-    return out
   }
 
   // Loads mediaURI and/or queue onto a player, and optionally
@@ -289,15 +371,17 @@ export default class Player {
 
     if (isQueue) {
       // we can only play known flac tracks
-      const isValidTrack = url => url.startsWith(CIFS) && url.endsWith('.flac')
-      assert.ok(urls.every(url => isValidTrack(url)))
+      assert.ok(urls.every(url => isValidTrackUrl(url)))
 
       // must be a queue, so ensure we are playing the queue
       const { mediaUri } = await this.#api.getMediaInfo()
-      if (!mediaUri || !mediaUri.startsWith(QUEUE)) {
+      if (!isValidQueueUrl(mediaUri)) {
         await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
       }
-      if (!add) await this.#api.emptyQueue()
+      if (!add) {
+        await this.#api.emptyQueue()
+      }
+
       await this.#api.addUriToQueue(urls.shift())
       if (play) {
         const { isPlaying } = await this.#api.getTransportInfo()
@@ -308,6 +392,8 @@ export default class Player {
       for (const url of urls) {
         await this.#api.addUriToQueue(url)
       }
+      this.queueUrls = undefined // force a rebuild
+
       if (repeat !== undefined) {
         await this.#api.setPlayMode(repeat ? 'REPEAT_ALL' : 'NORMAL')
       }
@@ -323,7 +409,7 @@ export default class Player {
   async copy (player) {
     assert.ok(player instanceof Player)
     const { mediaUri, mediaMetadata } = await player.#api.getMediaInfo()
-    if (mediaUri.startsWith(QUEUE)) {
+    if (isValidQueueUrl(mediaUri)) {
       const { playMode } = await player.#api.getPlayMode()
       const { repeat } = PLAYMODES[playMode] ?? {}
       const urls = await player.getOwnQueue()
@@ -333,10 +419,12 @@ export default class Player {
     }
   }
 
+  // ------------- Higher level command API ------
+
   async playNotification (url, opts = {}) {
     const { volume, play, delay = config.monitorPollDelay } = opts
     assert.ok(this.isLeader, 'Not a leader')
-    assert.ok(url.startsWith(WEB) || url.startsWith(CIFS), 'Not a URL')
+    assert.ok(isValidNotificationUrl(url), 'Not a URL')
 
     const isPlaying = async () => (await this.#api.getTransportInfo()).isPlaying
     const wasPlaying = await isPlaying()
