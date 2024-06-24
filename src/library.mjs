@@ -201,7 +201,10 @@ class Album {
 
   toJSON () {
     return {
-      ...this,
+      url: this.url,
+      artist: this.artist,
+      title: this.title,
+      genre: this.genre,
       type: this.type,
       tracks: this.tracks.map(t => t.toJSON())
     }
@@ -242,7 +245,11 @@ class Track {
   }
 
   toJSON () {
-    return { ...this, type: this.type }
+    return {
+      url: this.url,
+      title: this.title,
+      type: this.type
+    }
   }
 
   get type () {
@@ -296,7 +303,11 @@ class Media {
   }
 
   toJSON () {
-    return { ...this, type: this.type }
+    return {
+      url: this.url,
+      type: this.type,
+      title: this.title
+    }
   }
 }
 
