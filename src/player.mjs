@@ -136,11 +136,19 @@ export default class Player {
     }
 
     const trackUrl = this.trackUrl
+
+    // so now we get the playlist from the player and set queueUrls
+
     this.getPlaylist()
       .then(queueUrls => {
         if (trackUrl === this.trackUrl) {
-          assert.ok(queueUrls.includes(trackUrl)) // or we infinitely loop!
-          this.updatePlayer({ queueUrls })
+          // only update if it is valid - ie the queue contains
+          // the currrent item. If not, we set it to null and try again
+          if (queueUrls.includes(trackUrl)) {
+            this.updatePlayer({ queueUrls })
+          } else {
+            this.updatePlayer({ queueUrls: null })
+          }
         }
       })
       .catch(this.handleError)
