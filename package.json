@@ -1,6 +1,6 @@
 {
   "name": "@ludlovian/jonos-model",
-  "version": "0.6.19",
+  "version": "0.6.20",
   "description": "Stateful model of my sonos",
   "type": "module",
   "exports": "./src/index.mjs",
