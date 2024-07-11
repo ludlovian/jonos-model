@@ -42,7 +42,7 @@ class Model {
     // we have some listeners so start if necessary
     this.#idleTimer.cancel()
     this.players.start().catch(err => {
-      this.error = this.error ?? err
+      this._error = this.error ?? err
     })
   }
 
