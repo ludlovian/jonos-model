@@ -26,7 +26,7 @@
     "@ludlovian/until-signal": "github:ludlovian/until-signal"
   },
   "devDependencies": {
-    "@preact/signals-core": "^1.6.1"
+    "@preact/signals-core": "^1.7.0"
   },
   "peerDependencies": {
     "@preact/signals-core": "^1.6.1"

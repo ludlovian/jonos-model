@@ -2,7 +2,7 @@ import configure from '@ludlovian/configure'
 
 export default configure('JONOS_MODEL_', {
   libraryRoot: './library/files',
-  libraryRootCifs: 'x-file-cifs://data2.local/data/',
+  libraryRootCifs: 'x-file-cifs://pi2.local/data/',
   mediaRoot: './library/',
   mediaFile: 'media.json',
 
