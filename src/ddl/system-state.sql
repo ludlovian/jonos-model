@@ -25,7 +25,8 @@ create view if not exists systemState as
   )
   select  json_object(
             'version', a.version,
-            'started', datetime(a.started),
+            'started', strftime('%FT%TZ', a.started),
+            'listeners', a.listeners,
             'presets', jsonb(c.state),
             'notifies', jsonb(d.state),
             'players', jsonb(b.state)

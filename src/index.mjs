@@ -1,3 +1,5 @@
+import './make-ddl.mjs'
+
 import Timer from '@ludlovian/timer'
 import Debug from '@ludlovian/debug'
 import diffObject from '@ludlovian/diff-object'
@@ -11,6 +13,7 @@ import config from './config.mjs'
 class Model {
   static #instance
   #listening = false
+  #onListening
   #started = false
   #tmDelayedStop
   #debug = Debug('jonos-model:model')
@@ -26,6 +29,10 @@ class Model {
       ms: config.idleTimeout,
       fn: this.#stopListening.bind(this)
     }).cancel()
+  }
+
+  onListening (fn) {
+    this.#onListening = fn
   }
 
   async start () {
@@ -51,10 +58,16 @@ class Model {
       this.#startListening()
     }
     const dispose = notify(fn, opts)
+    const sql = 'update systemStatus set listeners=$count'
+    db.run(sql, { count: notify.count() })
+    tick()
+
     this.#debug('listening: %d', notify.count())
     return () => {
       dispose()
       if (!notify.count()) this.#tmDelayedStop.refresh()
+      db.run(sql, { count: notify.count() })
+      tick()
       this.#debug('listening: %d', notify.count())
     }
   }
@@ -66,7 +79,7 @@ class Model {
 
     // call it once on the next tick
     Promise.resolve().then(onUpdate)
-    return this.listen(onUpdate, opts)
+    const dispose = this.listen(onUpdate, opts)
 
     function onUpdate () {
       const state = JSON.parse(db.pluck.get(sql))
@@ -82,6 +95,7 @@ class Model {
     retry(async () => {
       await Promise.all(Player.all.map(p => p.start()))
       this.#debug('Started listening')
+      this.#onListening?.(true)
     })
   }
 
@@ -92,6 +106,7 @@ class Model {
       this.#debug('Stopped listening')
       this.#listening = false
       housekeep({ idle: true })
+      this.#onListening?.(false)
     })
   }
 }
