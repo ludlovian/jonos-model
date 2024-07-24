@@ -1,78 +1,104 @@
-import { effect } from '@preact/signals-core'
-import Debug from '@ludlovian/debug'
 import Timer from '@ludlovian/timer'
-import signalbox from '@ludlovian/signalbox'
-
+import Debug from '@ludlovian/debug'
+import diffObject from '@ludlovian/diff-object'
+import Player from './player.mjs'
+import { db, housekeep } from './database.mjs'
+import { startTaskMonitor, stopTaskMonitor, doTask } from './task.mjs'
+import { retry } from './util.mjs'
+import { notify } from './notify.mjs'
 import config from './config.mjs'
-import Players from './players.mjs'
-import Library from './library.mjs'
 
 class Model {
-  #model
+  static #instance
+  #listening = false
+  #started = false
+  #tmDelayedStop
   #debug = Debug('jonos-model:model')
-  #idleTimer
-  #dispose
+  Player = Player
+  doTask = doTask
 
-  players = new Players(this)
-  library = new Library(this)
-
-  constructor (model) {
-    this.#model = model
-    signalbox(this, {
-      listeners: 0,
-      _error: undefined,
-
-      error: () => this._error ?? this.players.error
-    })
+  static get instance () {
+    return this.#instance ?? (this.#instance = new Model())
   }
 
-  get model () {
-    return this.#model
-  }
-
-  #checkListeners () {
-    const listeners = this.listeners
-
-    // we have no listeners, so set the timeout going
-    if (listeners === 0) {
-      this.#idleTimer.refresh()
-      return
-    }
-
-    // we have some listeners so start if necessary
-    this.#idleTimer.cancel()
-    this.players.start().catch(err => {
-      this._error = this.error ?? err
-    })
+  constructor () {
+    this.#tmDelayedStop = new Timer({
+      ms: config.idleTimeout,
+      fn: this.#stopListening.bind(this)
+    }).cancel()
   }
 
   async start () {
-    // start builds the library and the player set, but
-    // doesn't start listening until we have some listeners
-
-    const libraryBuild = this.library.loadFromStore()
-    const playersBuild = this.players.buildAll()
-
-    await playersBuild
-
-    this.#idleTimer = new Timer({
-      fn: () => this.players.stop(),
-      ms: config.idleTimeout
-    }).cancel() // configure but don't start
-    this.#dispose = effect(this.#checkListeners.bind(this))
-
-    await libraryBuild
+    this.#started = true
+    housekeep({ start: true })
+    await retry(() => Player.discover())
+    startTaskMonitor()
+    this.#debug('model started')
   }
 
   async stop () {
-    if (this.#dispose) this.#dispose()
-    this.listeners = 0
-    this.#dispose = undefined
-    this.#idleTimer.cancel()
-    await this.players.stop()
+    stopTaskMonitor()
+    this.#tmDelayedStop.cancel()
+    if (notify.count()) notify.clear()
+    if (this.#listening) await this.#stopListening()
+    this.#debug('model stopped')
+    this.#started = false
+  }
+
+  listen (fn, opts) {
+    this.#tmDelayedStop.cancel()
+    if (!notify.count()) {
+      this.#startListening()
+    }
+    const dispose = notify(fn, opts)
+    this.#debug('listening: %d', notify.count())
+    return () => {
+      dispose()
+      if (!notify.count()) this.#tmDelayedStop.refresh()
+      this.#debug('listening: %d', notify.count())
+    }
+  }
+
+  subscribe (callback, opts) {
+    if (!this.#started) this.start()
+    let prev = {}
+    const sql = 'select state from state'
+
+    // call it once on the next tick
+    Promise.resolve().then(onUpdate)
+    return this.listen(onUpdate, opts)
+
+    function onUpdate () {
+      const state = JSON.parse(db.pluck.get(sql))
+      const diff = diffObject(prev, state, opts)
+      prev = state
+      if (Object.keys(diff).length) callback(diff)
+    }
+  }
+
+  #startListening () {
+    if (this.#listening) return
+    this.#listening = true
+    retry(async () => {
+      await Promise.all(Player.all.map(p => p.start()))
+      this.#debug('Started listening')
+    })
+  }
+
+  #stopListening () {
+    if (!this.#listening) return
+    retry(async () => {
+      await Promise.all(Player.all.map(p => p.stop()))
+      this.#debug('Stopped listening')
+      this.#listening = false
+      housekeep({ idle: true })
+    })
   }
 }
 
-const model = new Model()
-if (Debug('jonos-model:model').enabled) global.jonosModel = { model }
+// ---------------------------------------------------------------
+
+const model = Model.instance
+if (Debug('jonos-model').enabled) global.jonosModel = model
 export default model
+export { model, Player, doTask }
