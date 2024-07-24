@@ -10,28 +10,25 @@ import { tick } from './notify.mjs'
 import { db } from './database.mjs'
 import { ensureArray, ensureOpts } from './ensure.mjs'
 import { updatePlayer, updateQueue } from './dbapi.mjs'
-import { buildTopology, topologyChanges } from './topology.mjs'
 import config from './config.mjs'
 
 const RADIO = 'x-rincon-mp3radio'
 const DIDL = '<DIDL-Lite'
 
 export default class Player {
-  static byName = {}
-  static byUuid = {}
-  static all = []
-
   #startStopLock = new Lock()
   #api
   #debug
   #enqueueUrls = []
 
+  players
   id
   url
   uuid
   name
 
-  constructor (id) {
+  constructor (players, id) {
+    this.players = players
     this.id = id
 
     const sql = 'select name, url, uuid from player where id=$id'
@@ -47,17 +44,11 @@ export default class Player {
       .on('error', this.#handleError.bind(this))
 
     if (id === 1) {
-      this.#api.on('ZoneGroupTopology', Player.#onTopology.bind(Player))
+      this.#api.on('ZoneGroupTopology', players.onTopology.bind(players))
     }
     this.#debug = Debug(`jonos-model:${this.name}`)
   }
 
-  // -------- Discovery ---------------------------------
-  //
-  static async discover () {
-    const topology = await ApiPlayer.discover()
-    Player.#onTopology(topology)
-  }
   // -------- Inspect and getters -----------------------
 
   get api () {
@@ -96,14 +87,7 @@ export default class Player {
     updatePlayer(parms)
   }
 
-  static #onTopology ({ players }) {
-    buildTopology(players, Player)
-    for (const { uuid, leaderUuid } of topologyChanges(players)) {
-      Player.byUuid[uuid].#onLeader({ leaderUuid })
-    }
-  }
-
-  #onLeader ({ leaderUuid }) {
+  onLeader ({ leaderUuid }) {
     updatePlayer({ id: this.id, leaderUuid })
   }
 
@@ -120,7 +104,7 @@ export default class Player {
 
     this.#onAvTransport({ trackUrl, trackMetadata, playState, playMode })
     this.#onRenderingControl({ volume, mute })
-    this.#onLeader({ leaderUuid })
+    this.onLeader({ leaderUuid })
 
     const sql = 'update player set model=$model where id=$id'
     db.run(sql, { id: this.id, model })
@@ -325,7 +309,7 @@ export default class Player {
       const data = await this.#api.getCurrentGroup()
       return data.leaderUuid === this.uuid
     })
-    this.#onLeader({ leaderUuid: this.uuid })
+    this.onLeader({ leaderUuid: this.uuid })
   }
 
   async #joinGroup (leaderName) {
@@ -348,7 +332,7 @@ export default class Player {
       return data.leaderUuid === leader.uuid
     })
 
-    this.#onLeader({ leaderUuid: leader.uuid })
+    this.onLeader({ leaderUuid: leader.uuid })
   }
 
   // ------------ Notification playing -----------

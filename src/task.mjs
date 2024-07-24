@@ -1,8 +1,9 @@
 import Timer from '@ludlovian/timer'
-import Player from './player.mjs'
 import { db } from './database.mjs'
 import config from './config.mjs'
 import { fatal } from './util.mjs'
+
+let model
 
 // -------------------------------------------------------
 //
@@ -25,7 +26,7 @@ import { fatal } from './util.mjs'
 //
 
 export function doTask (name, cmd, p1, p2) {
-  const player = Player.byName[name]
+  const player = model?.byName[name]
   if (!player) {
     console.error('No such player: %s', name)
     console.error('Skipping task: %s', cmd)
@@ -63,7 +64,8 @@ const tm = new Timer({
   fn: checkTask
 }).cancel()
 
-export function startTaskMonitor () {
+export function startTaskMonitor (_model) {
+  model = _model
   if (tm.active) return
   dataChanged()
   tm.refresh()
