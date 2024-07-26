@@ -127,19 +127,19 @@ export default class Players {
   // -------- Listening ---------------------------------
   //
 
-  #startListening () {
+  async #startListening () {
     if (this.#listening) return
     this.#listening = true
-    retry(async () => {
+    await retry(async () => {
       await Promise.all(this.all.map(p => p.start()))
       this.#debug('Started listening')
       this.#onListening?.(true)
     })
   }
 
-  #stopListening () {
+  async #stopListening () {
     if (!this.#listening) return
-    retry(async () => {
+    await retry(async () => {
       await Promise.all(this.all.map(p => p.stop()))
       this.#debug('Stopped listening')
       this.#listening = false

@@ -1,4 +1,5 @@
-export default `----------------------------------------------------------------
+export default `
+----------------------------------------------------------------
 -- holds the schema number
 --
 --
@@ -100,6 +101,18 @@ create table if not exists media (
 );
 
 ----------------------------------------------------------------
+--
+drop view if exists mediaEx;
+create view if not exists mediaEx as
+  select  a.id,
+          b.name as type,
+          a.sonosUrl,
+          datetime(played, 'localtime') as played
+    from  media a
+    join  mediaType b on b.id = a.type;
+
+----------------------------------------------------------------
+----------------------------------------------------------------
 -- radio stations
 
 create table if not exists radio (
@@ -113,29 +126,52 @@ create table if not exists radio (
 --
 -- The FTS search tables
 
-create virtual table if not exists searchAlbum
+drop table if exists searchAlbum;
+create virtual table if not exists searchMedia
   using fts5(id, text);
+
+
+drop view if exists searchAlbumEx;
+drop view if exists searchMediaEx;
+create view if not exists searchMediaEx as
+  select  a.id,
+          a.text,
+          b.metadata
+    from  searchMedia a
+    join  mediaMetadata b on b.id = a.id;
+
 
 ----------------------------------------------------------------
 --
 -- Rebuild sproc
 --
 
+drop view if exists rebuildSearch;
 create view if not exists rebuildSearch (unused) as select 0  where 0;
 
 create trigger if not exists rebuildSearch_sproc instead of insert on rebuildSearch
 begin
 
-  delete from searchAlbum;
-  insert into searchAlbum (id, text)
-    select
-      id,
-      concat_ws(' ',
-        title,
-        artist,
-        genre
-      )
-    from  album;
+  delete from searchMedia;
+  insert into searchMedia (id, text)
+    select  b.id,
+            concat_ws(' ',
+              a.title,
+              a.artist,
+              a.genre
+            )
+    from  album a
+    join  track b on (b.album, b.seq) = (a.id, 0)
+    union all
+    select  a.id,
+            concat_ws(' ', 'radio', a.title)
+      from  radio a
+    union all
+    select  a.id,
+            'tv'
+      from  media a
+      join  mediaType b on b.id = a.type
+      where b.name = 'tv';
 
 end;
 
@@ -323,7 +359,9 @@ drop view if exists playerEx;
 create view if not exists playerEx as
   select  a.id,
           a.name,
-          c.name as leader,
+          a.fullName,
+          c.name as leaderName,
+          b.id = b.leader as isLeader,
           b.volume,
           b.mute,
           b.playState in  ('PLAYING', 'TRANSITIONING') as playing,
@@ -356,10 +394,10 @@ drop view if exists queueEx;
 create view if not exists queueEx as
   with urls as (
     select  a.id,
-            json_group_array(c.sonosUrl) as items
+            json_group_array(json(c.metadata)) as items
       from  queue a
       join  json_each(a.items) b
-      join  media c on c.id = b.value
+      join  mediaMetadata c on c.id = b.value
       group by 1
   )
   select  a.id,
@@ -559,7 +597,8 @@ create view if not exists playerState as
           jsonb_object(
             'id', a.id,
             'name', a.name,
-            'leader', a.leader,
+            'fullName', a.fullName,
+            'leaderName', a.leaderName,
             'volume', a.volume,
             'mute', json(iif(a.mute, 'true', 'false')),
             'playing', iif(b.isLeader, jsonb(iif(a.playing, 'true', 'false')), null),

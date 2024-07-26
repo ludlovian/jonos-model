@@ -11,7 +11,8 @@ create view if not exists playerState as
           jsonb_object(
             'id', a.id,
             'name', a.name,
-            'leader', a.leader,
+            'fullName', a.fullName,
+            'leaderName', a.leaderName,
             'volume', a.volume,
             'mute', json(iif(a.mute, 'true', 'false')),
             'playing', iif(b.isLeader, jsonb(iif(a.playing, 'true', 'false')), null),

@@ -15,10 +15,10 @@ drop view if exists queueEx;
 create view if not exists queueEx as
   with urls as (
     select  a.id,
-            json_group_array(c.sonosUrl) as items
+            json_group_array(json(c.metadata)) as items
       from  queue a
       join  json_each(a.items) b
-      join  media c on c.id = b.value
+      join  mediaMetadata c on c.id = b.value
       group by 1
   )
   select  a.id,

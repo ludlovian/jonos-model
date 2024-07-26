@@ -23,7 +23,9 @@ drop view if exists playerEx;
 create view if not exists playerEx as
   select  a.id,
           a.name,
-          c.name as leader,
+          a.fullName,
+          c.name as leaderName,
+          b.id = b.leader as isLeader,
           b.volume,
           b.mute,
           b.playState in  ('PLAYING', 'TRANSITIONING') as playing,

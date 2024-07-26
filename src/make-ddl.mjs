@@ -33,5 +33,5 @@ function makeDdl () {
   ]
 
   const ddl = files.map(name => readFileSync(name, 'utf8')).join('')
-  writeFileSync('src/ddl.mjs', 'export default `' + ddl + '`\n')
+  writeFileSync('src/ddl.mjs', 'export default `\n' + ddl + '`\n')
 }

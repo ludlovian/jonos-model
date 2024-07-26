@@ -27,6 +27,8 @@ export function housekeep (when = {}) {
       version = env.npm_package_version
     }
     db.run('delete from task')
+    db.run('update queue set items=null')
+    db.run('update playerStatus set media=null')
     const sql = 'update systemStatus set started=julianday(),version=$version'
     db.run(sql, { version })
   }

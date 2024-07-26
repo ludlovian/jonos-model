@@ -23,3 +23,15 @@ create table if not exists media (
   foreign key (artwork) references artwork (id)
 );
 
+----------------------------------------------------------------
+--
+drop view if exists mediaEx;
+create view if not exists mediaEx as
+  select  a.id,
+          b.name as type,
+          a.sonosUrl,
+          datetime(played, 'localtime') as played
+    from  media a
+    join  mediaType b on b.id = a.type;
+
+----------------------------------------------------------------

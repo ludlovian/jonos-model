@@ -126,20 +126,35 @@ export function updatePlayer (data) {
     db.run(sql, { id })
   }
 
-  // If we are playing a track, then check against the queue
+  // If we have been given a Url and something changed, then we check the queue
   //
-  // A queue can be null if we are simply playing a local file.
-  // But if it isn't null, it should include what we are playing.
-  // If we find that it doesn't, then we kick off a 'getQueue'
-  // to update it
+  // If the media is not a track, the queue should be null
+  //
+  // If it is a track, then:
+  // - the queue can be null if we are simply playing a single
+  //   item (although unlikely). So we kick off a `getQueue` to check.
+  //
+  // - if (as is usually the case) the queue is not null, we ensure that the
+  //   current item is on it. This means we might let an out-of-date queue
+  //   be uncorrected until we start playing an item not on the queue
+  //
+  //   If there is a discrepancy, we kick off a getQueue
 
-  if (mediaType === 'track' && changed) {
+  if (sonosUrl && changed) {
+    let bNeedCheck = false
     sql = 'select items from queue where player=$id'
     const items = db.pluck.get(sql, { id })
-    let bNeedCheck = true
-    if (items !== null) {
-      const ids = JSON.parse(items)
-      if (ids.includes(media)) bNeedCheck = false
+    if (mediaType !== 'track') {
+      if (items !== null) {
+        sql = 'update queue set items=null where player=$id'
+        db.run(sql, { id })
+      }
+    } else {
+      bNeedCheck = true
+      if (items !== null) {
+        const ids = JSON.parse(items)
+        if (ids.includes(media)) bNeedCheck = false
+      }
     }
     if (bNeedCheck) {
       sql = 'select name from player where id=$id'

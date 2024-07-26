@@ -159,9 +159,13 @@ export default class Player {
         p1 = ensureArray(p1)
         p2 = ensureOpts(p2)
         return safeRetry(() => this.#enqueue(p1, p2))
-      case 'enqueueAlbum':
+      case 'loadMedia':
         p2 = ensureOpts(p2)
-        return safeRetry(() => this.#enqueueAlbum(p1, p2))
+        return safeRetry(() => this.#loadMedia(p1, p2))
+      case 'notify': {
+        const opts = { retries: 1, timeout: p2 }
+        return safeRetry(() => this.#playNotification(p1), opts)
+      }
     }
   }
 
@@ -213,7 +217,7 @@ export default class Player {
         await this.#api.addUriToQueue(url)
 
         // update the DB and rebuild the new (short) queue
-        this.#onAvTransport({ trackUrl: url })
+        updatePlayer({ id: this.id, sonosUrl: url })
         await this.#getQueue()
 
         // set it playing if required, with the right play mode
@@ -223,7 +227,7 @@ export default class Player {
           if (repeat) {
             const playMode = 'REPEAT_ALL'
             await this.#api.setPlayMode(playMode)
-            this.#onAvTransport({ playMode })
+            updatePlayer({ id: this.id, playMode })
           }
         }
       }
@@ -241,7 +245,7 @@ export default class Player {
       const url = urls[0]
       if (!url) return
       await this.#api.setAVTransportURI(url)
-      this.#onAvTransport({ trackUrl: url })
+      updatePlayer({ id: this.id, sonosUrl: url })
       await this.#getQueue()
       if (play) {
         const { isPlaying } = await this.#api.getTransportInfo()
@@ -250,9 +254,17 @@ export default class Player {
     }
   }
 
-  #enqueueAlbum (path, opts) {
-    const sql = 'select sonosUrl from albumTracks where path=$path'
-    const urls = db.pluck.all(sql, { path })
+  #loadMedia (url, opts) {
+    let sql = 'select type from mediaEx where sonosUrl=$url'
+    const type = db.pluck.get(sql, { url })
+    if (!type) return
+    if (type !== 'track') return this.#enqueue([url], opts)
+
+    sql = `
+      select sonosUrl from albumTracks where albumId =
+      (select albumId from albumTracks where sonosUrl=$url)
+    `
+    const urls = db.pluck.all(sql, { url })
     if (urls.length) return this.#enqueue(urls, opts)
   }
 
@@ -273,7 +285,7 @@ export default class Player {
       const { volume } = await this.#api.getVolume()
       return vol === volume
     })
-    this.#onRenderingControl({ volume: vol })
+    updatePlayer({ id: this.id, volume: vol })
   }
 
   async #setMute (mute) {
@@ -282,7 +294,7 @@ export default class Player {
       const { mute: mute_ } = await this.#api.getMute()
       return mute === mute_
     })
-    this.#onRenderingControl({ mute })
+    updatePlayer({ id: this.id, mute })
   }
 
   async #playPause (val) {
@@ -295,7 +307,7 @@ export default class Player {
       const res = await this.#api.getTransportInfo()
       return res.isPlaying === !!val ? res : null
     })
-    this.#onAvTransport({ playState: data.playState })
+    updatePlayer({ id: this.id, playState: data.playState })
   }
 
   // ------------ Group Management ---------------
@@ -313,14 +325,14 @@ export default class Player {
   }
 
   async #joinGroup (leaderName) {
-    const leader = Player.byName[leaderName]
+    const leader = this.players.byName[leaderName]
     assert(leader)
 
     const data = await this.#api.getCurrentGroup()
     if (data.leaderUuid === this.uuid) {
       const uuids = data.memberUuids.filter(uuid => uuid !== this.uuid)
       for (const uuid of uuids) {
-        const follower = Player.all.find(p => p.uuid === uuid)
+        const follower = this.players.byUuid[uuid]
         if (follower) await follower.#startOwnGroup()
       }
     }
