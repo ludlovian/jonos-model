@@ -155,13 +155,17 @@ export default class Player {
         return safeRetry(() => this.#startOwnGroup())
       case 'joinGroup':
         return safeRetry(() => this.#joinGroup(p1))
-      case 'enqueue':
+      case 'enqueue': {
+        const opts = { timeout: 3 * config.callTimeout }
         p1 = ensureArray(p1)
         p2 = ensureOpts(p2)
-        return safeRetry(() => this.#enqueue(p1, p2))
-      case 'loadMedia':
+        return safeRetry(() => this.#enqueue(p1, p2), opts)
+      }
+      case 'loadMedia': {
+        const opts = { timeout: 3 * config.callTimeout }
         p2 = ensureOpts(p2)
-        return safeRetry(() => this.#loadMedia(p1, p2))
+        return safeRetry(() => this.#loadMedia(p1, p2), opts)
+      }
       case 'notify': {
         const opts = { retries: 1, timeout: p2 }
         return safeRetry(() => this.#playNotification(p1), opts)
