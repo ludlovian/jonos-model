@@ -9,6 +9,8 @@ const runtimeDDL = [
   'pragma journal_mode = wal;',
   'pragma foreign_keys = true;',
   'pragma recursive_triggers = true;',
+  'pragma trusted_schema = false;',
+  'pragma synchronous = normal;',
   'begin transaction;',
   ddl,
   'commit;'
