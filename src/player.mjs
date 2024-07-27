@@ -5,7 +5,7 @@ import Debug from '@ludlovian/debug'
 import Lock from '@ludlovian/lock'
 import ApiPlayer from '@ludlovian/jonos-api'
 
-import { safeRetry, verify } from './util.mjs'
+import { retry, safeRetry, verify } from './util.mjs'
 import { tick } from './notify.mjs'
 import { db } from './database.mjs'
 import { ensureArray, ensureOpts } from './ensure.mjs'
@@ -140,36 +140,35 @@ export default class Player {
     } else {
       this.#debug('%s()', cmd)
     }
+    const reportError = err => {
+      console.err(`Error in ${this.name}.${cmd}`)
+      console.err(err)
+      return err
+    }
     switch (cmd) {
       case 'getQueue':
-        return safeRetry(() => this.#getQueue())
+        return this.#getQueue().catch(reportError)
       case 'setVolume':
-        return safeRetry(() => this.#setVolume(+p1))
+        return this.#setVolume(+p1).catch(reportError)
       case 'setMute':
-        return safeRetry(() => this.#setMute(!!p1))
+        return this.#setMute(!!p1).catch(reportError)
       case 'play':
-        return safeRetry(() => this.#playPause(true))
+        return this.#playPause(true).catch(reportError)
       case 'pause':
-        return safeRetry(() => this.#playPause(false))
+        return this.#playPause(false).catch(reportError)
       case 'startGroup':
-        return safeRetry(() => this.#startOwnGroup())
+        return this.#startOwnGroup().catch(reportError)
       case 'joinGroup':
-        return safeRetry(() => this.#joinGroup(p1))
-      case 'enqueue': {
-        const opts = { timeout: 3 * config.callTimeout }
+        return this.#joinGroup(p1).catch(reportError)
+      case 'enqueue':
         p1 = ensureArray(p1)
         p2 = ensureOpts(p2)
-        return safeRetry(() => this.#enqueue(p1, p2), opts)
-      }
-      case 'loadMedia': {
-        const opts = { timeout: 3 * config.callTimeout }
+        return this.#enqueue(p1, p2).catch(reportError)
+      case 'loadMedia':
         p2 = ensureOpts(p2)
-        return safeRetry(() => this.#loadMedia(p1, p2), opts)
-      }
-      case 'notify': {
-        const opts = { retries: 1, timeout: p2 }
-        return safeRetry(() => this.#playNotification(p1), opts)
-      }
+        return this.#loadMedia(p1, p2).catch(reportError)
+      case 'notify':
+        return this.#playNotification(p1).catch(reportError)
     }
   }
 
@@ -181,12 +180,13 @@ export default class Player {
     //
     // If we are, we fetch the queue
 
-    const { mediaUri } = await this.#api.getMediaInfo()
+    const { mediaUri } = await retry(() => this.#api.getMediaInfo)
     let urls = null
     if (mediaUri.startsWith(ApiPlayer.QUEUE)) {
       urls = []
       for (let i = 0; ; i += 100) {
-        const { queue } = await this.#api.getQueue(i, 100)
+        const fn = () => this.#api.getQueue(i, 100)
+        const { queue } = await retry(fn)
         urls = [...urls, ...queue]
         if (queue.length < 100) break
       }
@@ -203,9 +203,10 @@ export default class Player {
     const isQueue = urls.length > 1 || urls[0].startsWith(CIFS)
 
     if (isQueue) {
-      const { mediaUri } = await this.#api.getMediaInfo()
+      const { mediaUri } = await retry(() => this.#api.getMediaInfo())
       if (!mediaUri.startsWith(QUEUE)) {
-        await this.#api.setAVTransportURI(`${QUEUE}${this.uuid}#0`)
+        const uri = `${QUEUE}${this.uuid}#0`
+        await retry(() => this.#api.setAVTransportURI(uri))
       }
 
       // If replacing the queue, rather than adding, we set up the
@@ -214,11 +215,11 @@ export default class Player {
       //
       if (!add) {
         this.#enqueueUrls = []
-        await this.#api.emptyQueue()
+        await retry(() => this.#api.emptyQueue())
 
         // Just add one and (maybe) start playing
         const url = urls.shift()
-        await this.#api.addUriToQueue(url)
+        await retry(() => this.#api.addUriToQueue(url))
 
         // update the DB and rebuild the new (short) queue
         updatePlayer({ id: this.id, sonosUrl: url })
@@ -226,11 +227,11 @@ export default class Player {
 
         // set it playing if required, with the right play mode
         if (play) {
-          const { isPlaying } = await this.#api.getTransportInfo()
+          const { isPlaying } = await retry(() => this.#api.getTransportInfo())
           if (!isPlaying) await this.#playPause(true)
           if (repeat) {
             const playMode = 'REPEAT_ALL'
-            await this.#api.setPlayMode(playMode)
+            await retry(() => this.#api.setPlayMode(playMode))
             updatePlayer({ id: this.id, playMode })
           }
         }
@@ -248,11 +249,11 @@ export default class Player {
     } else {
       const url = urls[0]
       if (!url) return
-      await this.#api.setAVTransportURI(url)
+      await retry(() => this.#api.setAVTransportURI(url))
       updatePlayer({ id: this.id, sonosUrl: url })
       await this.#getQueue()
       if (play) {
-        const { isPlaying } = await this.#api.getTransportInfo()
+        const { isPlaying } = await retry(() => this.#api.getTransportInfo())
         if (!isPlaying) await this.#playPause(true)
       }
     }
@@ -284,55 +285,53 @@ export default class Player {
   // ------------ Rendering Control --------------
 
   async #setVolume (vol) {
-    await this.#api.setVolume(vol)
-    await verify(async () => {
+    await retry(() => this.#api.setVolume(vol))
+    const bOk = await verify(async () => {
       const { volume } = await this.#api.getVolume()
       return vol === volume
     })
-    updatePlayer({ id: this.id, volume: vol })
+    if (bOk) updatePlayer({ id: this.id, volume: vol })
   }
 
   async #setMute (mute) {
-    await this.#api.setMute(mute)
-    await verify(async () => {
+    await retry(() => this.#api.setMute(mute))
+    const bOk = await verify(async () => {
       const { mute: mute_ } = await this.#api.getMute()
       return mute === mute_
     })
-    updatePlayer({ id: this.id, mute })
+    if (bOk) updatePlayer({ id: this.id, mute })
   }
 
   async #playPause (val) {
-    if (val) {
-      await this.#api.play()
-    } else {
-      await this.#api.pause()
-    }
-    const data = await verify(async () => {
-      const res = await this.#api.getTransportInfo()
-      return res.isPlaying === !!val ? res : null
+    const fn = val ? () => this.#api.play() : () => this.#api.pause()
+    await retry(fn)
+    let data
+    const bOk = await verify(async () => {
+      data = await this.#api.getTransportInfo()
+      return data.isPlaying === !!val
     })
-    updatePlayer({ id: this.id, playState: data.playState })
+    if (bOk) updatePlayer({ id: this.id, playState: data.playState })
   }
 
   // ------------ Group Management ---------------
 
   async #startOwnGroup () {
-    const data = await this.#api.getCurrentGroup()
+    const data = await retry(() => this.#api.getCurrentGroup())
     if (data.leaderUuid === this.uuid) return
 
-    await this.#api.startOwnGroup()
-    await verify(async () => {
+    await retry(() => this.#api.startOwnGroup())
+    const bOk = await verify(async () => {
       const data = await this.#api.getCurrentGroup()
       return data.leaderUuid === this.uuid
     })
-    this.onLeader({ leaderUuid: this.uuid })
+    if (bOk) this.onLeader({ leaderUuid: this.uuid })
   }
 
   async #joinGroup (leaderName) {
     const leader = this.players.byName[leaderName]
     assert(leader)
 
-    const data = await this.#api.getCurrentGroup()
+    const data = await retry(() => this.#api.getCurrentGroup())
     if (data.leaderUuid === this.uuid) {
       const uuids = data.memberUuids.filter(uuid => uuid !== this.uuid)
       for (const uuid of uuids) {
@@ -341,14 +340,14 @@ export default class Player {
       }
     }
 
-    await this.#api.joinGroup(leader.uuid)
+    await retry(() => this.#api.joinGroup(leader.uuid))
 
-    verify(async () => {
+    const bOk = await verify(async () => {
       const data = await this.#api.getCurrentGroup()
       return data.leaderUuid === leader.uuid
     })
 
-    this.onLeader({ leaderUuid: leader.uuid })
+    if (bOk) this.onLeader({ leaderUuid: leader.uuid })
   }
 
   // ------------ Notification playing -----------
@@ -357,34 +356,36 @@ export default class Player {
     const { QUEUE } = ApiPlayer
     const delay = config.monitorPollDelay
 
-    const isPlaying = async () => (await this.#api.getTransportInfo()).isPlaying
+    const isPlaying = async () => {
+      const res = await retry(() => this.#api.getTransportInfo())
+      return res.isPlaying
+    }
     const wasPlaying = await isPlaying()
 
-    if (wasPlaying) await this.#api.pause()
+    if (wasPlaying) await this.#playPause(false)
 
-    const { trackNum, trackPos } = await this.#api.getPositionInfo()
-    const { mediaUri, mediaMetadata } = await this.#api.getMediaInfo()
+    let res
+    res = await retry(() => this.#api.getPositionInfo())
+    const { trackNum, trackPos } = res
 
-    await this.#api.setAVTransportURI(url)
-    await this.#api.play()
+    res = await retry(() => this.#api.getMediaInfo())
+    const { mediaUri, mediaMetadata } = res
 
-    let playing = false
-    while (!playing) {
-      playing = await isPlaying()
-      if (!playing) await sleep(delay)
-    }
+    await retry(() => this.#api.setAVTransportURI(url))
+    await this.#playPause(true)
 
+    let playing = true
     while (playing) {
       playing = await isPlaying()
       if (playing) await sleep(delay)
     }
 
-    await this.#api.setAVTransportURI(mediaUri, mediaMetadata)
+    await retry(() => this.#api.setAVTransportURI(mediaUri, mediaMetadata))
     if (mediaUri.startsWith(QUEUE) && trackNum && trackPos) {
-      await this.#api.seekTrack(trackNum)
-      await this.#api.seekPos(trackPos)
+      await retry(() => this.#api.seekTrack(trackNum))
+      await retry(() => this.#api.seekPos(trackPos))
     }
 
-    if (wasPlaying) await this.#api.play()
+    if (wasPlaying) await this.#playPause(true)
   }
 }
