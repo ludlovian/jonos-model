@@ -141,8 +141,8 @@ export default class Player {
       this.#debug('%s()', cmd)
     }
     const reportError = err => {
-      console.err(`Error in ${this.name}.${cmd}`)
-      console.err(err)
+      console.error(`Error in ${this.name}.${cmd}`)
+      console.error(err)
       return err
     }
     switch (cmd) {
@@ -180,9 +180,9 @@ export default class Player {
     //
     // If we are, we fetch the queue
 
-    const { mediaUri } = await retry(() => this.#api.getMediaInfo)
+    const { mediaUri } = await retry(() => this.#api.getMediaInfo())
     let urls = null
-    if (mediaUri.startsWith(ApiPlayer.QUEUE)) {
+    if (mediaUri && mediaUri.startsWith(ApiPlayer.QUEUE)) {
       urls = []
       for (let i = 0; ; i += 100) {
         const fn = () => this.#api.getQueue(i, 100)
