@@ -27,6 +27,88 @@ insert or ignore into settings
   );
 
 ----------------------------------------------------------------
+--
+-- Presets
+
+create table if not exists preset (
+  id          integer primary key,
+  name        text not null unique,
+  title       text,
+  leader      text not null,
+  volumes     text not null
+);
+
+insert or ignore into preset (name, title, leader, volumes)
+values
+  ( 'standard', 'Standard', 'bookroom', json_object(
+      'bookroom', 25,
+      'bedroom', 25,
+      'parlour', 25,
+      'kitchen', 25,
+      'archive', 18,
+      'study', 12,
+      'diningroom', 12
+  )),
+  ( 'zoom', 'Zoom', 'bookroom', json_object(
+      'bookroom', 25,
+      'bedroom', 25,
+      'kitchen', 25,
+      'archive', 18,
+      'diningroom', 12
+  )),
+  ( 'guests', 'Guests', 'bookroom', json_object(
+      'bookroom', 15,
+      'bedroom', 50,
+      'parlour', 12,
+      'kitchen', 50,
+      'archive', 50,
+      'study', 10,
+      'diningroom', 10
+  ));
+----------------------------------------------------------------
+
+drop view if exists presetEx;
+create view if not exists presetEx as
+  select  a.name,
+          a.leader,
+          b.key as player,
+          b.value as volume
+    from  preset a
+    join  json_each(a.volumes) b;
+
+----------------------------------------------------------------
+--
+-- Notifies table
+
+create table if not exists notify (
+  id          integer primary key not null,
+  name        text not null unique,
+  title       text,
+  leader      text,
+  url         text,
+  volume      integer,
+  resume      integer
+);
+
+insert or ignore into notify (name, title, leader, url, volume, resume )
+values
+(
+  'downstairs', 'Downstairs', 'bookroom',
+  'https://media-readersludlow.s3-eu-west-1.amazonaws.com/public/come-downstairs.mp3',
+  50, false
+),
+(
+  'feed_us', 'Feed Us', 'bookroom',
+  'https://media-readersludlow.s3.eu-west-1.amazonaws.com/public/feed-us-now.mp3',
+  50, true
+),
+(
+  'test', 'Test', 'study',
+  'https://media-readersludlow.s3.eu-west-1.amazonaws.com/public/feed-me-now.mp3',
+  15, true
+);
+
+----------------------------------------------------------------
 -- System status table
 
 create table if not exists systemStatus (
@@ -337,6 +419,13 @@ begin
       where type in ('tv','radio');
 end;
 
+drop view if exists searchMediaEx;
+create view if not exists searchMediaEx as
+  select  a.id,
+          a.text,
+          b.metadata
+    from  searchMedia a
+    join  media b on b.id = a.id;
 
 ----------------------------------------------------------------
 create table if not exists player (
@@ -448,7 +537,7 @@ drop view if exists playerEx;
 create view if not exists playerEx as
   with cteQueue as (
     select  a.id,
-            json_group_array(c.url) as queue
+            json_group_array(json(c.metadata)) as queue
       from  player a
       join  json_each(a.queue) b
       join  media c on c.id = b.value
@@ -732,7 +821,7 @@ create view if not exists currentState as
   playerKeys (key) as (
     values
       ('id'),('name'),('uuid'),('fullName'),('url'),('model'),
-      ('volume'),('mute'),('playing'),('media'),('queue'),
+      ('leaderName'),('volume'),('mute'),('playing'),('media'),('queue'),
       ('nowStream')
   ),
   playerState (id, player, key, value) as 
@@ -777,8 +866,30 @@ create view if not exists currentState as
       from  systemStatusEx a
       join  systemKeys b
       join  lastChange c
+  ),
+  presetState (id, player, key, value) as (
+    select  b.id,
+            'system',
+            'presets',
+            json_group_object(a.name, a.title) as value
+    from    preset a
+    join    lastChange b
+    group by 1,2,3
+  ),
+  notifyState (id, player, key, value) as (
+    select  b.id,
+            'system',
+            'notifies',
+            json_group_object(a.name, a.title) as value
+      from  notify a
+      join  lastChange b
+      group by 1,2,3
   )
   select * from systemState
+  union all
+  select * from presetState
+  union all
+  select * from notifyState
   union all
   select * from playerState
   order by 1;

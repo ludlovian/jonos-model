@@ -17,8 +17,6 @@
     "@ludlovian/bouncer": "github:ludlovian/bouncer",
     "@ludlovian/configure": "github:ludlovian/configure",
     "@ludlovian/debug": "github:ludlovian/debug",
-    "@ludlovian/diff-object": "github:ludlovian/diff-object",
-    "@ludlovian/equal": "github:ludlovian/equal",
     "@ludlovian/jonos-api": "github:ludlovian/jonos-api",
     "@ludlovian/lock": "github:ludlovian/lock",
     "@ludlovian/parsley": "github:ludlovian/parsley",

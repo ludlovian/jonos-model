@@ -17,12 +17,6 @@ importers:
       '@ludlovian/debug':
         specifier: github:ludlovian/debug
         version: https://codeload.github.com/ludlovian/debug/tar.gz/720a2f06021239565dd0b62aa823fd8741705a30
-      '@ludlovian/diff-object':
-        specifier: github:ludlovian/diff-object
-        version: https://codeload.github.com/ludlovian/diff-object/tar.gz/93f662b3f84e72c1a25e8ec7fe50a8775a233341
-      '@ludlovian/equal':
-        specifier: github:ludlovian/equal
-        version: https://codeload.github.com/ludlovian/equal/tar.gz/9af158101cc2b0cee715fb85b0f61a26858f24c5
       '@ludlovian/jonos-api':
         specifier: github:ludlovian/jonos-api
         version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/b7a3f885a97c7d85ee44498463a24a300581f5c6
@@ -62,14 +56,6 @@ packages:
   '@ludlovian/debug@https://codeload.github.com/ludlovian/debug/tar.gz/720a2f06021239565dd0b62aa823fd8741705a30':
     resolution: {tarball: https://codeload.github.com/ludlovian/debug/tar.gz/720a2f06021239565dd0b62aa823fd8741705a30}
     version: 0.2.0
-
-  '@ludlovian/diff-object@https://codeload.github.com/ludlovian/diff-object/tar.gz/93f662b3f84e72c1a25e8ec7fe50a8775a233341':
-    resolution: {tarball: https://codeload.github.com/ludlovian/diff-object/tar.gz/93f662b3f84e72c1a25e8ec7fe50a8775a233341}
-    version: 0.4.0
-
-  '@ludlovian/equal@https://codeload.github.com/ludlovian/equal/tar.gz/9af158101cc2b0cee715fb85b0f61a26858f24c5':
-    resolution: {tarball: https://codeload.github.com/ludlovian/equal/tar.gz/9af158101cc2b0cee715fb85b0f61a26858f24c5}
-    version: 0.1.0
 
   '@ludlovian/guess@https://codeload.github.com/ludlovian/guess/tar.gz/98ce9a84b91c571001c7ce164fad7ab9ce1946a4':
     resolution: {tarball: https://codeload.github.com/ludlovian/guess/tar.gz/98ce9a84b91c571001c7ce164fad7ab9ce1946a4}
@@ -253,12 +239,6 @@ snapshots:
       '@lukeed/ms': 2.0.2
 
   '@ludlovian/debug@https://codeload.github.com/ludlovian/debug/tar.gz/720a2f06021239565dd0b62aa823fd8741705a30': {}
-
-  '@ludlovian/diff-object@https://codeload.github.com/ludlovian/diff-object/tar.gz/93f662b3f84e72c1a25e8ec7fe50a8775a233341':
-    dependencies:
-      '@ludlovian/equal': https://codeload.github.com/ludlovian/equal/tar.gz/9af158101cc2b0cee715fb85b0f61a26858f24c5
-
-  '@ludlovian/equal@https://codeload.github.com/ludlovian/equal/tar.gz/9af158101cc2b0cee715fb85b0f61a26858f24c5': {}
 
   '@ludlovian/guess@https://codeload.github.com/ludlovian/guess/tar.gz/98ce9a84b91c571001c7ce164fad7ab9ce1946a4': {}
 

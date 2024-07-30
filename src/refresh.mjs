@@ -48,6 +48,7 @@ export async function refreshAlbums () {
     for (const path of unseen) {
       db.run('delete from album where path=$path', { path })
     }
+    db.run('update media set metadata=null where metadata is null')
     db.run('rebuildSearch')
   })
 }
