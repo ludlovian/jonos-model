@@ -1,5 +1,3 @@
-import './make-ddl.mjs'
-
 import Debug from '@ludlovian/debug'
 import Players from './players.mjs'
 

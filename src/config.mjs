@@ -4,7 +4,7 @@ export default configure('JONOS_MODEL_', {
   // sqlite
   database: './db/jonos.db',
   commitDelay: 2000,
-  taskPoll: 500,
+  taskPoll: 1000,
 
   // when making network calls
   callRetries: 2,

@@ -7,7 +7,8 @@ create table if not exists schema (
   id        integer primary key not null check (id = 1),
   version   integer not null
 );
-insert or ignore into schema values(1, 1);
+insert or ignore into schema values(1, 2);
+
 ----------------------------------------------------------------
 --
 -- settings table, with a single row
@@ -24,21 +25,62 @@ insert or ignore into settings
     'x-file-cifs://pi2.local/data/',
     'library/files'
   );
+
 ----------------------------------------------------------------
 -- System status table
 
 create table if not exists systemStatus (
   id        integer primary key not null check (id = 1),
-  started   float,
-  version   text,
-  listeners integer
+  started       float,
+  version       text,
+  listeners     integer default 0,
+  listening     integer default 0,
+  jonosRefresh  integer default 0
 );
-
 insert or ignore into systemStatus (id) values (1);
+drop trigger if exists systemStatus_upd_listeners;
+create trigger if not exists systemStatus_upd_listeners
+  after update of listeners, listening, jonosRefresh
+  on systemStatus
+begin
+  insert into playerChange(player, key, value, timestamp)
+    select  null, a.key, a.curr, julianday()
+      from  (
+        select  'listeners' as key,
+                old.listeners as prev,
+                new.listeners as curr
+        union all
+        select  'listening' as key,
+                old.listening as prev,
+                new.listening as curr
+        union all
+        select  'jonosRefresh' as key,
+                old.jonosRefresh as prev,
+                new.jonosRefresh as curr
+      ) a
+      where a.curr is not a.prev;
+end;
 
 
-----------------------------------------------------------------
+drop view if exists systemStatusEx;
+create view if not exists systemStatusEx as
+  with
+  chgMinMax as (
+    select  min(id) as firstChange,
+            max(id) as lastChange
+      from  playerChange
+  )
+  select  strftime('%FT%TZ', a.started) as started,
+          a.version,
+          ifnull(a.listeners, 0) as listeners,
+          a.listening,
+          a.jonosRefresh,
+          b.firstChange,
+          b.lastChange
+    from  systemStatus a
+    join  chgMinMax b;
 
+drop table if exists dataVersion;
 
 ----------------------------------------------------------------
 -- artwork
@@ -75,17 +117,8 @@ insert or ignore into mediaType(id, name, prefix)
           (9, 'other',  '');
 
 ----------------------------------------------------------------
-----------------------------------------------------------------
 --
 -- media items that can be played
---
---  - a library track
---  - a radio stream
---  - an http web stream
---  - the TV input
---  - following another player
---  - a spotify queue
---  - a spotify item
 --
 -- Each is given an unique id
 --
@@ -93,12 +126,76 @@ insert or ignore into mediaType(id, name, prefix)
 create table if not exists media (
   id            integer primary key,
   type          integer not null,
-  sonosUrl      text not null,
+  url           text not null,
+  title         text,
   artwork       integer,
+  metadata      blob,     -- JSONB of metadata
   played        real,
-  unique (sonosUrl),
+  unique (url),
   foreign key (artwork) references artwork (id)
 );
+
+create index if not exists media_ix_1 on media (type);
+
+----------------------------------------------------------------
+-- Trigger to update metadata
+--
+drop trigger if exists media_metadata_upd;
+create trigger if not exists media_metadata_upd
+  after update of metadata on media when new.metadata is null
+begin
+  update  media
+    set   metadata = val.metadata
+    from  (
+      select  json_object(
+                'id', id,
+                'type', 'track',
+                'albumId', albumId,
+                'seq', seq,
+                'url', url,
+                'albumArtist', albumArtist,
+                'album', album,
+                'title', title
+              ) as metadata
+        from  trackEx
+        where id = new.id
+    union all
+      select  json_object(
+                'id', id,
+                'type', type,
+                'url', url,
+                'title', title
+              )
+        from  mediaEx
+        where id = new.id
+          and type != 'track'
+    ) as val
+    where id = new.id
+      and val.metadata is not null;
+end;
+
+
+drop view if exists ensureMedia;
+create view ensureMedia (url) as select 0  where 0;
+create trigger ensureMedia_sproc instead of insert on ensureMedia
+begin
+  insert or ignore into media (type, url, artwork)
+    with cteType as (
+      select  id as typeId, artwork
+        from  mediaType
+        where new.url glob prefix || '*'
+        order by id
+        limit 1
+    )
+    select  typeId, new.url, artwork
+      from  cteType;
+
+  -- add in the best guess of metadata if not set
+  update  media
+    set   metadata = null
+    where url = new.url
+      and metadata is null;
+end;
 
 ----------------------------------------------------------------
 --
@@ -106,563 +203,588 @@ drop view if exists mediaEx;
 create view if not exists mediaEx as
   select  a.id,
           b.name as type,
-          a.sonosUrl,
+          a.url,
+          a.title,
+          a.metadata,
+          a.artwork,
           datetime(played, 'localtime') as played
     from  media a
     join  mediaType b on b.id = a.type;
 
 ----------------------------------------------------------------
-----------------------------------------------------------------
--- radio stations
-
-create table if not exists radio (
-  id            integer primary key,
-  title         text,
-  nowPlaying    text,
-  foreign key (id) references media (id)
-);
-
-----------------------------------------------------------------
---
--- The FTS search tables
-
-drop table if exists searchAlbum;
-create virtual table if not exists searchMedia
-  using fts5(id, text);
-
-
-drop view if exists searchAlbumEx;
-drop view if exists searchMediaEx;
-create view if not exists searchMediaEx as
-  select  a.id,
-          a.text,
-          b.metadata
-    from  searchMedia a
-    join  mediaMetadata b on b.id = a.id;
-
-
-----------------------------------------------------------------
---
--- Rebuild sproc
---
-
-drop view if exists rebuildSearch;
-create view if not exists rebuildSearch (unused) as select 0  where 0;
-
-create trigger if not exists rebuildSearch_sproc instead of insert on rebuildSearch
-begin
-
-  delete from searchMedia;
-  insert into searchMedia (id, text)
-    select  b.id,
-            concat_ws(' ',
-              a.title,
-              a.artist,
-              a.genre
-            )
-    from  album a
-    join  track b on (b.album, b.seq) = (a.id, 0)
-    union all
-    select  a.id,
-            concat_ws(' ', 'radio', a.title)
-      from  radio a
-    union all
-    select  a.id,
-            'tv'
-      from  media a
-      join  mediaType b on b.id = a.type
-      where b.name = 'tv';
-
-end;
-
-----------------------------------------------------------------
--- tracks
-
-create table if not exists track (
-  id            integer primary key,
-  album         integer,
-  seq           integer,
-  file          text,       -- file within path
-  title         text,
-  artist        text,       -- JSON array of artist names
-  unique (album, seq),
-  foreign key (id) references media (id),
-  foreign key (album) references album (id)
-);
-
-create trigger if not exists track_del after delete on track
-begin
-  delete from media where id = old.id;
-end;
-
-----------------------------------------------------------------
-
-create view if not exists addTrack
-  (sonosUrl, album, seq, file, title, artist) as select 0,0,0,0,0,0 where 0;
-create trigger if not exists addTrack_sproc instead of insert on addTrack
-
-begin
-  insert or ignore into media (type, sonosUrl)
-    select  id, new.sonosUrl
-      from  mediaType
-      where name = 'track';
-
-  insert into track
-    (id, album, seq, file, title, artist)
-    select a.id, new.album, new.seq, new.file, new.title, new.artist
-      from media a
-      where a.sonosUrl = new.sonosUrl;
-
-end;
-
-----------------------------------------------------------------
-
-create view if not exists albumTracks as
-  select  a.id as albumId,
-          b.id as trackId,
-          a.path,
-          c.sonosUrl
-
-    from  album a
-    join  track b on b.album = a.id
-    join  media c on c.id = b.id
-    order by a.path, b.seq;
-
-
-----------------------------------------------------------------
-----------------------------------------------------------------
 -- albums
 --
 -- which dynamically build tracks from metadata
+--
+-- trackEx is logically simply a view, but we materialize it with
+-- triggers to improve performance
 
 create table if not exists album (
   id            integer primary key,
   path          text,       -- relative to jonos
   hash          text,       -- hash of the metadata file
-  title         text,
-  artist        text,
-  genre         text,
-  cover         text,       -- file with artwork, relative to this
   metadata      blob,       -- JSONB of metadata
+  title         text generated always as
+                  (metadata ->> '$.album') stored,
+  artist        text generated always as
+                  (metadata ->> '$.albumArtist') stored,
+  genre         text generated always as
+                  (metadata ->> '$.genre') stored,
+  cover         text generated always as
+                  (ifnull(metadata ->> '$.cover','cover.jpg')) stored,
   unique (path)
 );
+
+drop trigger if exists album_ins;
 create trigger if not exists album_ins after insert on album
-begin 
-  update album
-    set metadata = jsonb(new.metadata)
+begin
+  update  album
+    set   metadata = jsonb(metadata)
     where id = new.id;
 end;
 
-create trigger if not exists album_del after delete on album
-begin
-  delete from track
-    where album = old.id;
-end;
-
+drop trigger if exists album_upd;
 create trigger if not exists album_upd after update of metadata on album
 begin
-  update album
-    set title   = metadata ->> '$.album',
-        artist  = metadata ->> '$.albumArtist',
-        genre   = metadata ->> '$.genre',
-        cover   = ifnull(metadata ->> '$.cover', 'cover.jpg')
-    where id = new.id;
 
-  delete from track where album = new.id;
+  -- get rid of old tracks
 
-  insert into addTrack (sonosUrl, album, seq, file, title, artist)
-    select 
-      concat(b.cifsPrefix, new.path, '/', a.value ->> '$.file'),
-      new.id,
-      a.key,
-      a.value ->> '$.file',
-      a.value ->> '$.title',
-      a.value -> '$.artist'
-    from
-      json_each(new.metadata -> '$.tracks') a,
-      settings b;
+  delete from track
+    where albumId = new.id;
+
+  -- now ensure that the urls are registered on media
+  insert into ensureMedia
+    select  concat(b.cifsPrefix, new.path, '/', a.value ->> '$.file')
+      from  json_each(new.metadata, '$.tracks') a
+      join  settings b;
+
+  -- and insert them into the track table
+  insert into track
+    (id, albumId, seq, url, title, file, artist)
+    select  c.id                      as id,
+            new.id                    as albumId, 
+            a.key                     as seq,
+            concat(b.cifsPrefix, new.path, '/', a.value ->> '$.file')
+                                      as url,
+            a.value ->> '$.title'     as title,
+            a.value ->> '$.file'      as file,
+            a.value -> '$.artist'     as artist
+      from  json_each(new.metadata, '$.tracks') a
+      join  settings b
+      join  media c on c.url =
+            concat(b.cifsPrefix, new.path, '/', a.value ->> '$.file');
+
+  -- finally we update the metadata on the media table
+  update  media
+    set   metadata = null
+    where id in (select id from track where albumId = new.id);
 
 end;
 
-
 ----------------------------------------------------------------
---
--- Static details of each player
 
-create table if not exists player (
-  id            integer primary key,
-  uuid          text not null,
-  fullName      text not null,
-  url           text not null,
-  model         text,
-  name          text generated always as (
-                  lower(replace(fullName, ' ', ''))
-                ),
-  unique (uuid),
+create table if not exists track (
+  id          integer primary key not null,
+  albumId     integer not null,
+  seq         integer not null,
+  url         integer not null,
+  title       text,
+  file        text,
+  artist      text,
+
+  foreign key (id) references media (id)
   unique (url)
 );
 
-create trigger if not exists player_ins
-  after insert on player
-begin
-  insert or ignore into playerStatus (id) values (new.id);
-
-  insert or ignore into media (type, sonosUrl)
-    select  id, prefix || new.uuid
-      from  mediaType
-      where name = 'follow';
-
-  insert or ignore into media (type, sonosUrl)
-    select  id, prefix || new.uuid || '#0'
-      from  mediaType
-      where name = 'queue';
-
-  insert or ignore into queue (id, player)
-    select  a.id, new.id
-      from  media a
-      join  mediaType b on b.id = a.type
-      where a.sonosUrl = b.prefix || new.uuid || '#0'
-        and b.name = 'queue';
-
-end;
-
-create trigger if not exists player_del
-  after delete on player
-begin
-  delete from playerStatus where id = old.id;
-  delete from queue where player = old.id;
-end;
+----------------------------------------------------------------
+drop view if exists trackEx;
+create view if not exists trackEx as
+  select  a.id,
+          a.albumId,
+          a.seq,
+          a.url,
+          b.artist as albumArtist,
+          b.title as album,
+          a.title,
+          b.genre,
+          a.artist
+    from  track a
+    join  album b on b.id = a.albumId;
 
 ----------------------------------------------------------------
-----------------------------------------------------------------
---
--- volatile details  of each player
---
 
-create table if not exists playerStatus (
+create virtual table if not exists searchMedia
+  using fts5(id, text);
+
+drop view if exists rebuildSearch;
+create view if not exists rebuildSearch (unused) as select 0  where 0;
+create trigger if not exists rebuildSearch_sproc instead of insert on rebuildSearch
+begin
+  delete from searchMedia;
+  insert into searchMedia (id, text)
+    select  id,
+            concat_ws(' ',
+              albumArtist,
+              album,
+              genre
+            )
+    from  trackEx
+    where seq = 0
+    union all
+    select  id,
+            concat_ws(' ', type, title)
+      from  mediaEx
+      where type in ('tv','radio');
+end;
+
+
+----------------------------------------------------------------
+create table if not exists player (
+  -- static attributes
   id          integer primary key,
+  uuid        text not null,
+  fullName    text not null,
+  url         text not null,
+  model       text,
+  name        text generated always as
+                (lower(replace(fullName, ' ', ''))) stored,
+
+  -- dynamic attributes
   leader      integer,
   volume      integer,
   mute        integer,
   playState   text,
   playMode    text,
-  media       integer,  -- media id of current item
-  foreign key (id) references player (id),
-  foreign key (leader) references player (id),
+  media       integer,    -- id of the media for this url
+  queue       text,       -- JSON array of media ids
+  nowStream   text,
+
+  -- generated attributes
+  isLeader    integer generated always as
+                (id = leader),
+  playing     integer generated always as
+                (playState in ('PLAYING','TRANSITIONING')),
+  repeats     integer generated always as
+                (playMode in ('REPEAT','REPEAT_ALL')),
+
+  unique (uuid),
+  unique (url),
+  unique (name),
+  foreign key (leader) references player(id),
   foreign key (media) references media(id)
 );
 
 ----------------------------------------------------------------
---
+-- player changes
+
+create table if not exists playerChange (
+  id          integer primary key not null,
+  player      integer,
+  key         text,
+  value       any,
+  timestamp   real,
+  foreign key (player) references player(id)
+);
+drop trigger if exists player_update_change;
+create trigger if not exists player_update_change after update of
+  leader, volume, mute, playState, playMode, media, queue, nowStream
+on player
+begin
+  insert into playerChange(player, key, value, timestamp)
+    select  new.id, key, value, julianday()
+      from  (
+        select  'leaderName'          as key,
+                leaderName            as value
+          from  playerEx
+          where id = new.id
+            and new.leader is not old.leader
+      union all
+        select  'volume'              as key,
+                new.volume            as value
+          where new.volume is not old.volume
+      union all
+        select  'mute'                as key,
+                new.mute              as value
+          where new.mute is not old.mute
+      union all
+        select  'playing'             as key,
+                playing               as value
+          from  playerEx
+          where id = new.id
+            and new.playState is not old.playState
+      union all
+        select  'media'               as key,
+                media                 as value
+          from  playerEx
+          where id = new.id
+            and new.media is not old.media
+      union all
+        select  'queue'               as key,
+                queue                 as value
+          from  playerEx
+          where id = new.id
+            and new.queue is not old.queue
+      union all
+        select  'nowStream'           as key,
+                new.nowStream         as value
+          where new.nowStream is not old.nowStream
+      );
+end;
+
+drop view if exists playerChangeEx;
+create view playerChangeEx as
+  select  a.id,
+          ifnull(b.name, 'system') as player,
+          a.key,
+          a.value,
+          datetime(a.timestamp, 'localtime', 'subsecond') as timestamp
+    from  playerChange a
+    left join player b on b.id = a.player;
+
+----------------------------------------------------------------
+-- playerEx view
 
 drop view if exists playerEx;
 create view if not exists playerEx as
-  select  a.id,
-          a.name,
-          a.fullName,
-          c.name as leaderName,
-          b.id = b.leader as isLeader,
-          b.volume,
-          b.mute,
-          b.playState in  ('PLAYING', 'TRANSITIONING') as playing,
-          b.playMode in ('REPEAT', 'REPEAT_ALL') as repeat,
-          d.sonosUrl,
-          e.metadata,
-          f.items
-    from  player a
-    join  playerStatus b on b.id = a.id
-    join  player c on c.id = b.leader
-    join  media d on d.id = b.media
-    join  mediaMetadata e on e.id = d.id
-    join  queueEx f on f.player = a.id;
-
-----------------------------------------------------------------
-----------------------------------------------------------------
-
-create table if not exists queue (
-  id      integer primary key not null,
-  player  integer not null unique,
-  items   text, -- JSON list of media ids
-
-  foreign key (id) references media (id),
-  foreign key (player) references player(id)
-);
-
-----------------------------------------------------------------
-
-drop view if exists queueEx;
-create view if not exists queueEx as
-  with urls as (
+  with cteQueue as (
     select  a.id,
-            json_group_array(json(c.metadata)) as items
-      from  queue a
-      join  json_each(a.items) b
-      join  mediaMetadata c on c.id = b.value
-      group by 1
+            json_group_array(c.url) as queue
+      from  player a
+      join  json_each(a.queue) b
+      join  media c on c.id = b.value
+      group by a.id
   )
   select  a.id,
-          a.player,
-          b.name,
-          c.items
-    from queue a
-    join player b on b.id = a.player
-    left join urls c on c.id = a.id;
-----------------------------------------------------------------
--- Permanent table of transient tasks
+          a.name,
+          a.uuid,
+          a.fullName,
+          a.url,
+          a.model,
+          a.leader,
+          b.name as leaderName,
+          a.isLeader,
+          a.volume,
+          a.mute,
+          iif(a.isLeader, a.playState, null) as playState,
+          iif(a.isLeader, a.playing, null) as playing,
+          iif(a.isLeader, a.playMode, null) as playMode,
+          iif(a.isLeader, a.repeats, null) as repeats,
+          d.metadata as media,
+          c.queue as queue,
+          iif(a.isLeader, a.nowStream, null) as nowStream
 
-create table if not exists task (
-  id        integer primary key not null,
-  player    integer,
-  cmd       text not null,
-  p1        any,
-  p2        any,
-  foreign key (player) references player (id)
-);
+    from  player a
+    join  player b on b.id = a.leader
+    left join cteQueue c on c.id = a.id
+    left join media d on d.id = a.media;
+
+
+
 
 ----------------------------------------------------------------
 --
-create view if not exists addTask (player, cmd, p1, p2)
-  as select 0,0,0,0 where 0;
-create trigger if not exists addTask_sproc
-  instead of insert on addTask
+-- Main updatePlayer stored proc
+--
+
+drop view if exists updatePlayer;
+create view updatePlayer
+  (id, volume, mute, playMode, playState, leaderUuid, url, metadata)
+  as select 0,0,0,0,0,0,0,0 where 0;
+create trigger updatePlayer_sproc instead of insert on updatePlayer
 begin
-  insert into task (player, cmd, p1, p2)
-    select  a.id, new.cmd, new.p1, new.p2
+  -- make sure the media row exists if given
+  insert into ensureMedia(url)
+    select new.url where new.url is not null;
+
+  -- The player record is updated in stages. First
+  -- is the leader (from leaderUuid) if given as this
+  -- will affect later updates
+
+  update  player
+    set   leader = val.leader
+    from  (
+      select  ifnull(b.id, a.leader) as leader
+        from  player a
+        join  player b on b.uuid = new.leaderUuid
+        where a.id = new.id
+    ) as val
+    where id = new.id
+      and player.leader is not val.leader;
+
+  -- Then we set the volume/mute/playState & playMode
+  update  player
+    set (volume, mute, playState, playMode) =
+          (val.volume, val.mute, val.playState, val.playMode)
+    from (
+      select  ifnull(new.volume, a.volume) as volume,
+              ifnull(new.mute, a.mute) as mute,
+              ifnull(new.playState, a.playState) as playState,
+              ifnull(new.playMode, a.playMode) as playMode
+        from  player a
+        where a.id = new.id
+    ) as val
+    where id = new.id
+      and (player.volume, player.mute, player.playState, player.playMode)
+      is not (val.volume, val.mute, val.playState, val.playMode);
+
+  -- The we update the current media from the url if given
+  update  player
+    set   media = val.media
+    from  (
+      select  iif(
+                a.isLeader,
+                ifnull(b.id, a.media),
+                null
+              ) as media
+        from  player a
+        left join  media b on b.url = new.url
+        where a.id = new.id
+    ) as val
+    where id = new.id
+      and player.media is not val.media;
+
+  -- Update the nowStream from the metadata if we are playing a radio
+  update  player
+    set   nowStream = val.nowStream
+    from  ( select  new.metadata ->> '$.streamContent' as nowStream
+              from  player a
+              join  mediaEx b on b.id = a.media
+              where a.id = new.id
+                and b.type = 'radio'
+                and new.metadata is not null
+          ) as val
+    where id = new.id
+      and player.nowStream is not val.nowStream;
+
+  -- We set the queue to null if we are not a leader
+  update  player
+    set   queue = null
+    where id = new.id
+      and not isLeader
+      and queue is not null;
+
+  -- We also et the queue to null if:
+  --  - if we are a leader, but playing something other than
+  --    a track
+  --
+  update  player
+    set   queue = null
+    from  ( select  1
+              from  player a
+              join  mediaEx b on b.id = a.media
+              where a.id = new.id
+                and b.type != 'track'
+          ) as val
+    where id = new.id
+      and isLeader
+      and new.url is not null
+      and queue is not null;
+
+  -- Finally we request a 'getQueue' action if
+  --  - a url was given
+  --  - this is a leader
+  --  - playing a track
+  --  - the queue is null OR
+  --      the current media item is not on the queue
+
+  insert into command (player, cmd)
+    select  new.id, 'getQueue'
       from  player a
-      where a.name = new.player
-        or  a.id = new.player
-      limit 1;
+      join  mediaEx b on b.id = a.media
+      where a.id = new.id
+        and new.url is not null
+        and a.isLeader
+        and b.type = 'track'
+        and ( a.queue is null
+          or  a.media not in
+                (select value from json_each(a.queue))
+        );
+
+
 end;
 
 ----------------------------------------------------------------
 --
+-- updatePlayerTopology
+--
+-- Updates all the leaders of the players in one go, adding
+-- new players as required
+--
 
-create view if not exists nextTask as
+
+drop view if exists updatePlayerTopology;
+create view updatePlayerTopology (players) as select 0 where 0;
+create trigger updatePlayerTopology_sproc instead of insert on updatePlayerTopology
+begin
+  insert or ignore into player (uuid, fullName, url)
+    select  value ->> '$.uuid',
+            value ->> '$.fullName',
+            value ->> '$.url'
+      from  json_each(new.players);
+
+  delete from player
+    where uuid not in (
+      select value ->> '$.uuid'
+        from  json_each(new.players)
+    );
+
+  insert into updatePlayer(id, leaderUuid)
+    select  b.id,
+            a.value ->> '$.leaderUuid'
+    from    json_each(new.players) a
+    join    player b on b.uuid = a.value ->> '$.uuid';
+end;
+
+----------------------------------------------------------------
+--
+--  updatePlayerQueue
+--
+--  converts a player Queue of urls into a media ids
+--
+
+drop view if exists updatePlayerQueue;
+create view if not exists updatePlayerQueue (id, urls) as select 0,0 where 0;
+create trigger if not exists updatePlayerQueue_sproc instead of insert on updatePlayerQueue
+begin
+  -- make sure each url has a media id
+
+  insert into ensureMedia (url)
+  select value from json_each(new.urls);
+
+  -- set the queue if it is an array of urls
+
+  update  player
+    set   queue = val.queue
+    from  (
+      select  json_group_array(b.id) as queue
+        from  json_each(new.urls) a
+        join  media b on b.url = a.value
+        where new.urls is not null
+        order by a.key
+    ) as val
+    where id = new.id
+      and new.urls is not null
+      and player.queue is not val.queue;
+
+  -- set the queue if it is nulls
+
+  update  player
+    set   queue = null
+    where id = new.id
+      and new.urls is null
+      and queue is not null;
+
+end;
+
+
+----------------------------------------------------------------
+--
+-- The command table for queueing commands to a player
+--
+--
+
+create table if not exists command (
+  id          integer primary key not null,
+  player      integer not null,
+  cmd         text not null,
+  parms       text,
+  foreign key (player) references player (id)
+);
+
+drop view if exists commandEx;
+create view if not exists commandEx as
   select  a.id,
           b.name as player,
           a.cmd,
-          a.p1,
-          a.p2
-    from  task a
-    join  player b on b.id = a.player
-    order by a.id
-    limit 1;
+          a.parms
+    from  command a
+    join  player b on b.id = a.player;
+
+drop view if exists addCommand;
+create view if not exists addCommand(player, cmd, parms)
+  as select 0,0,0 where 0;
+create trigger if not exists addCommand_sproc
+  instead of insert on addCommand
+begin
+  insert into command(player, cmd, parms)
+    select  a.id as player,
+            new.cmd,
+            new.parms
+      from  player a
+      where (typeof(new.player) = 'text' and a.name = new.player)
+        or  (typeof(new.player) = 'integer' and a.id = new.player);
+end;
 
 ----------------------------------------------------------------
 --
--- Notify settings
-
-create table if not exists notify (
-  id          integer primary key not null,
-  name        text not null unique,
-  title       text,
-  leader      text,
-  url         text,
-  volume      integer,
-  resume      integer
-);
-
-insert or ignore into notify (name, title, leader, url, volume, resume )
-values
-(
-  'downstairs', 'Downstairs', 'bookroom',
-  'https://media-readersludlow.s3-eu-west-1.amazonaws.com/public/come-downstairs.mp3',
-  50, false
-),
-(
-  'feed_us', 'Feed Us', 'bookroom',
-  'https://media-readersludlow.s3.eu-west-1.amazonaws.com/public/feed-us-now.mp3',
-  50, true
-),
-(
-  'test', 'Test', 'study',
-  'https://media-readersludlow.s3.eu-west-1.amazonaws.com/public/feed-me-now.mp3',
-  15, true
-);
-
-
-----------------------------------------------------------------
-----------------------------------------------------------------
+--  The complete current state for the sytem in a vertical
+--  table with
+--      - player / 'system'
+--      - key
+--      - value
 --
--- Presets
-
-create table if not exists preset (
-  id          integer primary key,
-  name        text not null unique,
-  title       text,
-  leader      text not null,
-  volumes     text not null
-);
-
-insert or ignore into preset (name, title, leader, volumes)
-values
-  ( 'standard', 'Standard', 'bookroom', json_object(
-      'bookroom', 25,
-      'bedroom', 25,
-      'parlour', 25,
-      'kitchen', 25,
-      'archive', 18,
-      'study', 12,
-      'diningroom', 12
-  )),
-  ( 'zoom', 'Zoom', 'bookroom', json_object(
-      'bookroom', 25,
-      'bedroom', 25,
-      'kitchen', 25,
-      'archive', 18,
-      'diningroom', 12
-  )),
-  ( 'guests', 'Guests', 'bookroom', json_object(
-      'bookroom', 15,
-      'bedroom', 50,
-      'parlour', 12,
-      'kitchen', 50,
-      'archive', 50,
-      'study', 10,
-      'diningroom', 10
-  ));
-----------------------------------------------------------------
-
-create view if not exists presetEx as
-  select  a.name,
-          a.leader,
-          b.key as player,
-          b.value as volume
-    from  preset a
-    join  json_each(a.volumes) b;
-
-----------------------------------------------------------------
-----------------------------------------------------------------
-create view if not exists mediaMetadata as
-  with cteTracks as (
-    select  a.id,
-            json_object(
-              'id', a.id,
-              'url', c.sonosUrl,
-              'type', d.name,
-              'albumId', b.id,
-              'albumArtist', b.artist,
-              'album', b.title,
-              'genre', b.genre,
-              'title', a.title,
-              'seq', a.seq
-            ) as metadata
-      from  track a
-      join  album b on b.id = a.album
-      join  media c on c.id = a.id
-      join  mediaType d on d.id = c.type
+drop view if exists currentState;
+create view if not exists currentState as
+  with lastChange (id) as
+  (
+    select ifnull(max(id),0) as id from playerChange
   ),
-  cteRadio as (
-    select  a.id,
-            json_object(
-              'id', a.id,
-              'url', b.sonosUrl,
-              'type', c.name,
-              'title', a.title,
-              'nowPlaying', a.nowPlaying
-            ) as metadata
-      from  radio a
-      join  media b on b.id = a.id
-      join  mediaType c on c.id = b.type
+  playerKeys (key) as (
+    values
+      ('id'),('name'),('uuid'),('fullName'),('url'),('model'),
+      ('volume'),('mute'),('playing'),('media'),('queue'),
+      ('nowStream')
   ),
-  cteOther as (
-    select  a.id,
-            json_object(
-              'id', a.id,
-              'url', a.sonosUrl,
-              'type', b.name
-            ) as metadata
-      from  media a
-      join  mediaType b on b.id = a.type
-      where a.id not in (select id from track)
-        and a.id not in (select id from radio)
+  playerState (id, player, key, value) as 
+  (
+    select  c.id,
+            a.name,
+            b.key,
+            case b.key
+              when 'id'           then a.id
+              when 'name'         then a.name
+              when 'uuid'         then a.uuid
+              when 'fullName'     then a.fullName
+              when 'url'          then a.url
+              when 'model'        then a.model
+              when 'leaderName'   then a.leaderName
+              when 'volume'       then a.volume
+              when 'mute'         then a.mute
+              when 'playing'      then a.playing
+              when 'media'        then a.media
+              when 'queue'        then a.queue
+              when 'nowStream'    then a.nowStream
+            end as value
+      from  playerEx a
+      join  playerKeys b
+      join  lastChange c
+  ),
+  systemKeys (key) as (
+    values  ('started'),('version'),('listeners'),('listening'),
+            ('jonosRefresh')
+  ),
+  systemState (id, player, key, value) as (
+    select  c.id,
+            'system',
+            b.key,
+            case b.key
+              when 'started'      then a.started
+              when 'version'      then a.version
+              when 'listeners'    then a.listeners
+              when 'listening'    then a.listening
+              when 'jonosRefresh' then a.jonosRefresh
+            end as value
+      from  systemStatusEx a
+      join  systemKeys b
+      join  lastChange c
   )
-  select  id, metadata from cteTracks
+  select * from systemState
   union all
-  select  id, metadata from cteRadio
-  union all
-  select  id, metadata from cteOther;
-
-
-----------------------------------------------------------------
---
-drop view if exists playerState;
-create view if not exists playerState as
-  with isLeader as (
-    select  id, id = leader as isLeader
-      from  playerStatus
-  )
-  select  a.id,
-          a.name,
-          jsonb_object(
-            'id', a.id,
-            'name', a.name,
-            'fullName', a.fullName,
-            'leaderName', a.leaderName,
-            'volume', a.volume,
-            'mute', json(iif(a.mute, 'true', 'false')),
-            'playing', iif(b.isLeader, jsonb(iif(a.playing, 'true', 'false')), null),
-            'repeat', iif(b.isLeader, jsonb(iif(a.repeat, 'true', 'false')), null),
-            'current', iif(b.isLeader, jsonb(a.metadata), null),
-            'queue', iif(b.isLeader, jsonb(a.items), null)
-          ) as state
-    from  playerEx a
-    join  isLeader b on b.id = a.id;
-
+  select * from playerState
+  order by 1;
 
 ----------------------------------------------------------------
 
-
+-- vim: ft=sql ts=2 sts=2 sw=2 et
 ----------------------------------------------------------------
---
-create view if not exists systemState as
-  with playerStates as (
-    select  name,
-            jsonb_object(
-              'fullName', fullName,
-              'uuid', uuid,
-              'url', url,
-              'model', model
-            ) as state
-      from  player
-  ),
-  presets as (
-    select json_group_object(name, title) as state
-      from preset
-  ),
-  notifies as (
-    select json_group_object(name, title) as state
-    from notify
-  ),
-  players as (
-    select json_group_object(name, json(state)) as state
-      from playerStates
-  )
-  select  json_object(
-            'version', a.version,
-            'started', strftime('%FT%TZ', a.started),
-            'listeners', a.listeners,
-            'presets', jsonb(c.state),
-            'notifies', jsonb(d.state),
-            'players', jsonb(b.state)
-          ) as state
-    from  systemStatus a,
-          players b,
-          presets c,
-          notifies d;
-
-----------------------------------------------------------------
---
-
-create view if not exists state as
-  with players as (
-    select  json_group_object(name, json(state)) as state
-      from  playerState
-  )
-  select  json_object(
-            'system', jsonb(a.state),
-            'players', jsonb(b.state)
-          ) as state
-    from  systemState a,
-          players b;
 `

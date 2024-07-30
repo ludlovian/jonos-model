@@ -9,6 +9,9 @@ import { db } from './database.mjs'
 const debug = Debug('jonos-model:refresh')
 
 export async function refreshCoverArt () {
+  let i = 0
+  const report = () => debug('%d artworks checked', i)
+
   await db.asyncTransaction(config.commitDelay, async () => {
     const sql = 'select id, file, hash from artwork'
     for (const { id, file, hash } of db.all(sql)) {
@@ -20,11 +23,16 @@ export async function refreshCoverArt () {
       if (hash !== newHash) {
         await addArtwork(file, { hash, id })
       }
+      if (++i % 100 === 0) report()
     }
+    report()
   })
 }
 
 export async function refreshAlbums () {
+  let i = 0
+  const report = () => debug('%d albums checked', i)
+
   await db.asyncTransaction(config.commitDelay, async () => {
     const root = db.pluck.get('select libraryRoot from settings')
     const unseen = new Set(db.pluck.all('select path from album'))
@@ -33,9 +41,10 @@ export async function refreshAlbums () {
         const path = rec.parentPath
         unseen.delete(path)
         await checkAlbum(rec.file, path, join(root, path))
-        // unseen.clear();break
+        if (++i % 100 === 0) report()
       }
     }
+    report()
     for (const path of unseen) {
       db.run('delete from album where path=$path', { path })
     }
@@ -68,18 +77,19 @@ async function checkAlbum (file, path, albumDir) {
   }
   sql = 'select id, cover from album where path=$path'
   const { id, cover } = db.get(sql, { path })
+
   await setCoverArt(id, join(albumDir, cover))
 }
 
-async function setCoverArt (album, file) {
+async function setCoverArt (albumId, file) {
   let sql = 'select id from artwork where file=$file'
   let artwork = db.pluck.get(sql, { file })
   if (!artwork) artwork = await addArtwork(file)
   sql = `
     update media set artwork = $artwork
-    where id in (select id from track where album = $album)
+    where id in (select id from trackEx where albumId = $albumId)
   `
-  db.run(sql, { artwork, album })
+  db.run(sql, { artwork, albumId })
 }
 
 async function addArtwork (file, { hash, id } = {}) {

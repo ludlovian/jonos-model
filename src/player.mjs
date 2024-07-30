@@ -1,25 +1,20 @@
 import assert from 'node:assert/strict'
 import { setTimeout as sleep } from 'node:timers/promises'
-import Parsley from '@ludlovian/parsley'
 import Debug from '@ludlovian/debug'
 import Lock from '@ludlovian/lock'
 import ApiPlayer from '@ludlovian/jonos-api'
 
-import { retry, safeRetry, verify } from './util.mjs'
+import { retry, safeRetry, verify, xmlToObject } from './util.mjs'
 import { tick } from './notify.mjs'
 import { db } from './database.mjs'
-import { ensureArray, ensureOpts } from './ensure.mjs'
-import { updatePlayer, updateQueue } from './dbapi.mjs'
 import config from './config.mjs'
-
-const RADIO = 'x-rincon-mp3radio'
-const DIDL = '<DIDL-Lite'
 
 export default class Player {
   #startStopLock = new Lock()
   #api
   #debug
   #enqueueUrls = []
+  #commander = false
 
   players
   id
@@ -49,10 +44,22 @@ export default class Player {
     this.#debug = Debug(`jonos-model:${this.name}`)
   }
 
+  // -------- Post construction initialisation ----------
+
+  async updateModel () {
+    const { model } = await this.#api.getDescription()
+    const sql = 'update player set model=$model where id=$id'
+    db.run(sql, { id: this.id, model })
+  }
+
   // -------- Inspect and getters -----------------------
 
   get api () {
     return this.#api
+  }
+
+  get isListening () {
+    return this.#api.isListening
   }
 
   // -------- Error handling ----------------------------
@@ -65,57 +72,78 @@ export default class Player {
   // -------- Event handling ----------------------------
 
   #onAvTransport (data) {
-    const { playState, trackUrl, trackMetadata, playMode } = data
-    const parms = { id: this.id, playState, playMode, sonosUrl: trackUrl }
-
-    if (trackUrl?.startsWith(RADIO) && trackMetadata?.trim().startsWith(DIDL)) {
-      const elem = Parsley.from(trackMetadata.trim(), { safe: true })
-      if (elem) {
-        const str = elem.find('r:streamContent')?.text
-        if (str && !/^Z[A-Z_]+$/.test(str)) {
-          parms.nowPlaying = str
-        }
-      }
+    const sql = `
+      insert into updatePlayer(id,playState,playMode,url,metadata)
+      values($id,$playState,$playMode,$url,$metadata)
+    `
+    const parms = {
+      id: this.id,
+      url: data.trackUrl ?? null,
+      playState: data.playState ?? null,
+      playMode: data.playMode ?? null
     }
-
-    updatePlayer(parms)
+    parms.metadata = xmlToObject(data.trackMetadata)
+    if (parms.metadata) parms.metadata = JSON.stringify(parms.metadata)
+    db.run(sql, parms)
+    tick()
+    this.checkCommands()
   }
 
   #onRenderingControl (data) {
-    const { volume, mute } = data
-    const parms = { id: this.id, volume, mute }
-    updatePlayer(parms)
+    const sql = `
+      insert into updatePlayer(id,volume,mute)
+      values($id,$volume,$mute)
+    `
+    const parms = {
+      id: this.id,
+      volume: data.volume === undefined ? null : data.volume,
+      mute: data.mute === undefined ? null : data.mute ? 1 : 0
+    }
+    db.run(sql, parms)
+    tick()
   }
 
-  onLeader ({ leaderUuid }) {
-    updatePlayer({ id: this.id, leaderUuid })
+  #onLeader (data) {
+    const sql = `
+      insert into updatePlayer(id,leaderUuid)
+      values($id,$leaderUuid)
+    `
+    const parms = {
+      id: this.id,
+      leaderUuid: data.leaderUuid
+    }
+    db.run(sql, parms)
+    tick()
   }
 
   // -------- Player attribute update -------------------
 
   async updateEverything () {
-    const { trackUrl, trackMetadata } = await this.#api.getPositionInfo()
-    const { playState } = await this.#api.getTransportInfo()
-    const { playMode } = await this.#api.getPlayMode()
-    const { volume } = await this.#api.getVolume()
-    const { mute } = await this.#api.getMute()
-    const { model } = await this.#api.getDescription()
-    const { leaderUuid } = await this.#api.getCurrentGroup()
-
-    this.#onAvTransport({ trackUrl, trackMetadata, playState, playMode })
-    this.#onRenderingControl({ volume, mute })
-    this.onLeader({ leaderUuid })
-
-    const sql = 'update player set model=$model where id=$id'
-    db.run(sql, { id: this.id, model })
-    tick()
+    await safeRetry(async () =>
+      this.#onAvTransport(await this.#api.getPositionInfo())
+    )
+    await safeRetry(async () =>
+      this.#onAvTransport(await this.#api.getTransportInfo())
+    )
+    await safeRetry(async () =>
+      this.#onAvTransport(await this.#api.getPlayMode())
+    )
+    await safeRetry(async () =>
+      this.#onRenderingControl(await this.#api.getVolume())
+    )
+    await safeRetry(async () =>
+      this.#onRenderingControl(await this.#api.getMute())
+    )
+    await safeRetry(async () =>
+      this.#onLeader(await this.#api.getCurrentGroup())
+    )
   }
 
   // -------- Start and stop listening ------------------
 
   start () {
     return this.#startStopLock.exec(async () => {
-      if (this.#api.isListening) return
+      if (this.isListening) return
       await this.#api.startListening()
       await this.updateEverything()
       this.#debug('started listening')
@@ -124,56 +152,56 @@ export default class Player {
 
   stop () {
     return this.#startStopLock.exec(async () => {
-      if (!this.#api.isListening) return
+      if (!this.isListening) return
       await this.#api.stopListening()
       this.#debug('stopped listening')
     })
   }
 
-  // ------------ Tasks --------------------------
+  // ------------ Commands -----------------------
 
-  async doTask (cmd, p1, p2) {
-    if (p2 != null) {
-      this.#debug('%s(%s, %s)', cmd, p1, p2)
-    } else if (p1 != null) {
-      this.#debug('%s(%s)', cmd, p1)
-    } else {
-      this.#debug('%s()', cmd)
+  checkCommands () {
+    if (this.#commander) return
+    this.#commander = true
+    Promise.resolve().then(this.#runCommander())
+  }
+
+  async #runCommander () {
+    while (true) {
+      let sql =
+        'select id, cmd, parms from command where player=$id order by id'
+      const rec = db.get(sql, { id: this.id })
+      if (!rec) break
+      sql = 'delete from command where id=$id'
+      db.run(sql, { id: rec.id })
+      if (!this[rec.cmd]) {
+        console.error('Cannot perform command:', rec)
+        continue
+      }
+      this.#debug('run %s(%s)', rec.cmd, rec.parms)
+      let parms = rec.parms
+      if (
+        typeof parms === 'string' &&
+        (parms.startsWith('{') || parms.startsWith('['))
+      ) {
+        try {
+          parms = JSON.parse(parms)
+        } catch (err) {
+          // do nothing
+        }
+      }
+      try {
+        await this[rec.cmd](parms)
+      } catch (err) {
+        console.error('Error when carrying out:', rec)
+        console.error(err)
+      }
     }
-    const reportError = err => {
-      console.error(`Error in ${this.name}.${cmd}`)
-      console.error(err)
-      return err
-    }
-    switch (cmd) {
-      case 'getQueue':
-        return this.#getQueue().catch(reportError)
-      case 'setVolume':
-        return this.#setVolume(+p1).catch(reportError)
-      case 'setMute':
-        return this.#setMute(!!p1).catch(reportError)
-      case 'play':
-        return this.#playPause(true).catch(reportError)
-      case 'pause':
-        return this.#playPause(false).catch(reportError)
-      case 'startGroup':
-        return this.#startOwnGroup().catch(reportError)
-      case 'joinGroup':
-        return this.#joinGroup(p1).catch(reportError)
-      case 'enqueue':
-        p1 = ensureArray(p1)
-        p2 = ensureOpts(p2)
-        return this.#enqueue(p1, p2).catch(reportError)
-      case 'loadMedia':
-        p2 = ensureOpts(p2)
-        return this.#loadMedia(p1, p2).catch(reportError)
-      case 'notify':
-        return this.#playNotification(p1).catch(reportError)
-    }
+    this.#commander = false
   }
 
   // ------------ Queue Monitoring ---------------
-  async #getQueue () {
+  async getQueue () {
     // updates the `items` column on the `queue` table
     //
     // If we are not playing a queue, we set it to null
@@ -190,116 +218,118 @@ export default class Player {
         urls = [...urls, ...queue]
         if (queue.length < 100) break
       }
+      urls = JSON.stringify(urls)
     }
-    updateQueue({ id: this.id, urls })
+    const sql = `
+      insert into updatePlayerQueue (id, urls)
+      values ($id, $urls)
+    `
+    db.run(sql, { id: this.id, urls })
+    tick()
   }
 
   // ------------ Enqueuing Media ----------------
 
-  async #enqueue (urls, opts = {}) {
-    const { play, repeat, add } = opts
+  async enqueue (url) {
+    await retry(() => this.#api.addUriToQueue(url))
+  }
 
+  async loadUrls ({ urls, add, play, repeat }) {
     const { CIFS, QUEUE } = ApiPlayer
     const isQueue = urls.length > 1 || urls[0].startsWith(CIFS)
 
-    if (isQueue) {
-      const { mediaUri } = await retry(() => this.#api.getMediaInfo())
-      if (!mediaUri.startsWith(QUEUE)) {
-        const uri = `${QUEUE}${this.uuid}#0`
-        await retry(() => this.#api.setAVTransportURI(uri))
-      }
-
-      // If replacing the queue, rather than adding, we set up the
-      // first url in order to set everything going, and then
-      // schedule the adds to be done after we return
-      //
-      if (!add) {
-        this.#enqueueUrls = []
-        await retry(() => this.#api.emptyQueue())
-
-        // Just add one and (maybe) start playing
-        const url = urls.shift()
-        await retry(() => this.#api.addUriToQueue(url))
-
-        // update the DB and rebuild the new (short) queue
-        updatePlayer({ id: this.id, sonosUrl: url })
-        await this.#getQueue()
-
-        // set it playing if required, with the right play mode
-        if (play) {
-          const { isPlaying } = await retry(() => this.#api.getTransportInfo())
-          if (!isPlaying) await this.#playPause(true)
-          if (repeat) {
-            const playMode = 'REPEAT_ALL'
-            await retry(() => this.#api.setPlayMode(playMode))
-            updatePlayer({ id: this.id, playMode })
-          }
-        }
-      }
-
-      // Now we have a bunch of URLs to add to the queue
-      // which we do later. If there's not a loader running
-      // then we set one going
-      //
-      if (!urls.length) return
-
-      const bIsLoading = !!this.#enqueueUrls.length
-      this.#enqueueUrls.push(...urls)
-      if (!bIsLoading) this.#loadUrls()
-    } else {
+    // deal with the simpler non-queue version first
+    if (!isQueue) {
       const url = urls[0]
       if (!url) return
       await retry(() => this.#api.setAVTransportURI(url))
-      updatePlayer({ id: this.id, sonosUrl: url })
-      await this.#getQueue()
+      const sql = 'insert into updatePlayer(id, url) values($id, $url)'
+      db.run(sql, { id: this.id, url })
+      tick()
+      return
+    }
+
+    const { mediaUri } = await retry(() => this.#api.getMediaInfo())
+    if (!mediaUri.startsWith(QUEUE)) {
+      const uri = `${QUEUE}${this.uuid}#0`
+      await retry(() => this.#api.setAVTransportURI(uri))
+    }
+
+    // If replacing the queue, rather than adding, we set up the
+    // first url in order to set everything going, and then
+    // schedule the adds to be done after we return
+    //
+    if (!add) {
+      await retry(() => this.#api.emptyQueue())
+
+      // Just add one and (maybe) start playing
+      const url = urls.shift()
+      await this.enqueue(url)
+      const sql = 'insert into updatePlayer(id, url) values($id, $url)'
+      db.run(sql, { id: this.id, url })
+      tick()
+      await this.getQueue()
+
       if (play) {
         const { isPlaying } = await retry(() => this.#api.getTransportInfo())
         if (!isPlaying) await this.#playPause(true)
+        if (repeat) {
+          const playMode = 'REPEAT_ALL'
+          await retry(() => this.#api.setPlayMode(playMode))
+          const sql =
+            'insert into updatePlayer(id,playMode) values($id,$playMode)'
+          db.run(sql, { id: this.id, playMode })
+          tick()
+        }
       }
     }
-  }
 
-  #loadMedia (url, opts) {
-    let sql = 'select type from mediaEx where sonosUrl=$url'
-    const type = db.pluck.get(sql, { url })
-    if (!type) return
-    if (type !== 'track') return this.#enqueue([url], opts)
+    // Now we have a bunch of URLs to add to the queue, so we
+    // add commands to enqueue these, and make sure a commander
+    // is running
+    if (!urls.length) return
 
-    sql = `
-      select sonosUrl from albumTracks where albumId =
-      (select albumId from albumTracks where sonosUrl=$url)
-    `
-    const urls = db.pluck.all(sql, { url })
-    if (urls.length) return this.#enqueue(urls, opts)
-  }
-
-  async #loadUrls () {
-    // load the Urls onto the queue, asynchronously
-    while (this.#enqueueUrls.length) {
-      const url = this.#enqueueUrls.shift()
-      await safeRetry(() => this.#api.addUriToQueue(url))
+    for (const url of urls) {
+      const sql =
+        'insert into command(player,cmd,parms) values($id,$cmd,$parms)'
+      db.run(sql, { id: this.id, cmd: 'enqueue', parms: url })
     }
-    this.doTask('getQueue')
+    const sql = 'insert into command(player,cmd) values($id,$cmd)'
+    db.run(sql, { id: this.id, cmd: 'getQueue' })
+    this.checkCommands()
+  }
+
+  loadMedia ({ url, ...opts }) {
+    // if the url given is a track, then we load all the tracks
+    // in the album. Otherwise we just load that one url
+    let sql = 'select albumId from track where url=$url'
+    const albumId = db.pluck.get(sql, { url })
+    if (!albumId) {
+      return this.loadUrls({ urls: [url], ...opts })
+    }
+    sql = 'select url from track where albumId=$albumId order by seq'
+    const urls = db.pluck.all(sql, { albumId })
+    return this.loadUrls({ urls, ...opts })
   }
 
   // ------------ Rendering Control --------------
 
-  async #setVolume (vol) {
+  async setVolume (vol) {
     await retry(() => this.#api.setVolume(vol))
     const bOk = await verify(async () => {
       const { volume } = await this.#api.getVolume()
       return vol === volume
     })
-    if (bOk) updatePlayer({ id: this.id, volume: vol })
+    if (bOk) this.#onRenderingControl({ volume: vol })
   }
 
-  async #setMute (mute) {
+  async setMute (mute) {
     await retry(() => this.#api.setMute(mute))
     const bOk = await verify(async () => {
       const { mute: mute_ } = await this.#api.getMute()
       return mute === mute_
     })
-    if (bOk) updatePlayer({ id: this.id, mute })
+    if (bOk) this.#onRenderingControl({ mute })
   }
 
   async #playPause (val) {
@@ -310,12 +340,20 @@ export default class Player {
       data = await this.#api.getTransportInfo()
       return data.isPlaying === !!val
     })
-    if (bOk) updatePlayer({ id: this.id, playState: data.playState })
+    if (bOk) this.#onAvTransport(data)
+  }
+
+  async play () {
+    return this.#playPause(true)
+  }
+
+  async pause () {
+    return this.#playPause(false)
   }
 
   // ------------ Group Management ---------------
 
-  async #startOwnGroup () {
+  async startGroup () {
     const data = await retry(() => this.#api.getCurrentGroup())
     if (data.leaderUuid === this.uuid) return
 
@@ -324,10 +362,10 @@ export default class Player {
       const data = await this.#api.getCurrentGroup()
       return data.leaderUuid === this.uuid
     })
-    if (bOk) this.onLeader({ leaderUuid: this.uuid })
+    if (bOk) this.#onLeader({ leaderUuid: this.uuid })
   }
 
-  async #joinGroup (leaderName) {
+  async joinGroup (leaderName) {
     const leader = this.players.byName[leaderName]
     assert(leader)
 
@@ -336,7 +374,7 @@ export default class Player {
       const uuids = data.memberUuids.filter(uuid => uuid !== this.uuid)
       for (const uuid of uuids) {
         const follower = this.players.byUuid[uuid]
-        if (follower) await follower.#startOwnGroup()
+        if (follower) await follower.startGroup()
       }
     }
 
@@ -347,12 +385,12 @@ export default class Player {
       return data.leaderUuid === leader.uuid
     })
 
-    if (bOk) this.onLeader({ leaderUuid: leader.uuid })
+    if (bOk) this.#onLeader({ leaderUuid: leader.uuid })
   }
 
   // ------------ Notification playing -----------
 
-  async #playNotification (url) {
+  async playNotification (url) {
     const { QUEUE } = ApiPlayer
     const delay = config.monitorPollDelay
 
@@ -362,7 +400,7 @@ export default class Player {
     }
     const wasPlaying = await isPlaying()
 
-    if (wasPlaying) await this.#playPause(false)
+    if (wasPlaying) await this.pause()
 
     let res
     res = await retry(() => this.#api.getPositionInfo())
@@ -372,7 +410,7 @@ export default class Player {
     const { mediaUri, mediaMetadata } = res
 
     await retry(() => this.#api.setAVTransportURI(url))
-    await this.#playPause(true)
+    await this.play()
 
     let playing = true
     while (playing) {
@@ -386,6 +424,6 @@ export default class Player {
       await retry(() => this.#api.seekPos(trackPos))
     }
 
-    if (wasPlaying) await this.#playPause(true)
+    if (wasPlaying) await this.play()
   }
 }

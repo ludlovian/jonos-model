@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { setTimeout as sleep } from 'node:timers/promises'
+import Parsley from '@ludlovian/parsley'
 import timeout from '@ludlovian/timeout'
 import config from './config.mjs'
 
@@ -63,4 +64,19 @@ export async function verify (verifyFunc, opts = {}) {
     await sleep(delay)
   }
   return false
+}
+
+export function xmlToObject (xml) {
+  const out = {}
+  if (!xml) return null
+  xml = xml.trim()
+  if (!xml.startsWith('<')) return null
+  const elem = Parsley.from(xml, { safe: true })
+  if (!elem) return null
+  for (const el of elem.findAll(p => p.isText)) {
+    let key = el.type.replace(/.*:/, '')
+    key = key.charAt(0).toLowerCase() + key.slice(1)
+    out[key] = el.text
+  }
+  return out
 }

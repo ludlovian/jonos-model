@@ -1,19 +1,19 @@
-import { db } from './src/database.mjs'
-import { locateMedia } from './src/dbapi.mjs'
-import Player from './src/player.mjs'
+import model from '@ludlovian/jonos-model'
 import { refreshCoverArt, refreshAlbums } from './src/refresh.mjs'
+
+const { db } = model
 
 main()
 
 async function main () {
-  locateMedia('')
-  await Player.discover()
+  await model.discover()
   setupOther()
   setupRadio()
-
   console.log('starting refresh')
   await refreshCoverArt()
   await refreshAlbums()
+  const sql = 'update media set metadata=null where metadata is null'
+  db.run(sql)
   console.log('done')
 }
 
@@ -42,26 +42,26 @@ function setupOther () {
 function setupRadio () {
   const radios = [
     {
-      sonosUrl:
-        'x-rincon-mp3radio://https://allclassical.streamguys1.com/ac128kmp3',
+      url: 'x-rincon-mp3radio://https://allclassical.streamguys1.com/ac128kmp3',
       title: 'All Classical Radio',
       file: 'library/allclassical.png'
     }
   ]
-  radios.forEach(({ sonosUrl, title, file }) => {
+  radios.forEach(({ url, title, file }) => {
     let sql = 'insert or ignore into artwork(file) values($file)'
     db.run(sql, { file })
 
-    const { id } = locateMedia(sonosUrl)
-    sql = 'insert into radio(id, title) values($id,$title)'
-    db.run(sql, { id, title })
+    sql = 'insert into ensureMedia values($url)'
+    db.run(sql, { url })
+    sql = 'update media set title=$title where url=$url'
+    db.run(sql, { url, title })
 
     sql = `
       update media
       set artwork = (select id from artwork where file=$file)
-      where id = $id
+      where url=$url
     `
-    db.run(sql, { id, file })
+    db.run(sql, { url, file })
   })
 }
 // ----------------------------------------------------------------
