@@ -669,7 +669,7 @@ begin
       and new.url is not null
       and queue is not null;
 
-  -- Finally we request a 'getQueue' action if
+  -- We request a 'getQueue' action if
   --  - a url was given
   --  - this is a leader
   --  - playing a track
@@ -689,6 +689,17 @@ begin
                 (select value from json_each(a.queue))
         );
 
+  -- We request a 'updateEverything' call if it appears
+  -- we are out of sync. Curerntly this means:
+  --
+  --  apparently leading and playing, but no media given
+
+  insert into command (player, cmd)
+    select  new.id, 'updateEverything'
+      from  player a
+      where a.media is null
+        and a.playing
+        and a.isLeader;
 
 end;
 
