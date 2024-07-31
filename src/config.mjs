@@ -13,7 +13,6 @@ export default configure('JONOS_MODEL_', {
 
   // listener
   notifyDebounce: 200,
-  idleTimeout: '30s',
 
   // verify
   verifyTries: 3,
