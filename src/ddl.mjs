@@ -23,7 +23,8 @@ create table if not exists settings (
 insert or ignore into settings (item, value)
 values
   ('cifsPrefix',      'x-file-cifs://pi2.local/data/'),
-  ('libraryRoot',     'library/files');
+  ('libraryRoot',     'library/files'),
+  ('idleTimeout',     10_000);
 
 ----------------------------------------------------------------
 --

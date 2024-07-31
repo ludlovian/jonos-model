@@ -126,8 +126,9 @@ export default class Players {
     return () => {
       dispose()
       if (!notify.count()) {
+        const idleTimeout = db.getSetting('idleTimeout') ?? 0
         this.#tmDelayedStop = new Timer({
-          ms: config.idleTimeout,
+          ms: idleTimeout,
           fn: this.#stopListening.bind(this)
         })
       }
