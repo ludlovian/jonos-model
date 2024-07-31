@@ -33,14 +33,17 @@ export function housekeep (when = {}) {
     if (env.NODE_ENV === 'production' && env.npm_package_version) {
       version = env.npm_package_version
     }
-    db.run('delete from command')
-    db.run('delete from playerChange')
-    db.run('delete from player')
-    const sql = `
-      update systemStatus
-      set listeners=0,started=julianday(),version=$version
-    `
+    const sql = "update systemStatus set value=$version where item='version'"
     db.run(sql, { version })
+    db.exec(`
+      update systemStatus set value=0
+        where item in ('listeners', 'listening', 'jonosRefresh');
+      update systemStatus set value=strftime('%FT%TZ','now')
+        where item='started';
+      delete from command;
+      delete from playerChange;
+      delete from player;
+    `)
   }
   if (when.idle) {
     db.run('pragma wal_checkpoint(restart)')

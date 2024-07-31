@@ -44,11 +44,17 @@ export default class Players {
     this.byName = Object.fromEntries(this.all.map(p => [p.name, p]))
     this.byUuid = Object.fromEntries(this.all.map(p => [p.uuid, p]))
     await Promise.all(this.all.map(p => p.updateModel()))
+    this.all.forEach(p => p.checkActions())
   }
 
   onTopology ({ players }) {
-    const sql = 'insert into updatePlayerTopology values($players)'
-    db.run(sql, { players: JSON.stringify(players) })
+    players = JSON.stringify(players)
+    let sql = 'insert into updatePlayerTopology values($players)'
+    db.run(sql, { players })
+    // Now signal any players that might need updates
+    sql = 'select distinct name from playerActionsNeeded'
+    const names = db.pluck.all(sql)
+    names.forEach(name => this.byName[name]?.checkActions())
     tick()
   }
 
@@ -79,8 +85,10 @@ export default class Players {
     await retry(async () => {
       if (!this.#started) await this.start()
       await Promise.all(this.all.map(p => p.start()))
-      const sql = 'update systemStatus set listening=1'
-      db.run(sql)
+      const item = 'listening'
+      const val = 1
+      const sql = 'update systemStatus set value=$val where item=$item'
+      db.run(sql, { item, val })
       tick()
       this.#debug('Started listening')
       this.onListening?.(true)
@@ -91,8 +99,10 @@ export default class Players {
     if (!this.isListening) return
     await retry(async () => {
       await Promise.all(this.all.map(p => p.stop()))
-      const sql = 'update systemStatus set listening=0'
-      db.run(sql)
+      const item = 'listening'
+      const val = 0
+      const sql = 'update systemStatus set value=$val where item=$item'
+      db.run(sql, { item, val })
       tick()
       this.#debug('Stopped listening')
       housekeep({ idle: true })
@@ -106,8 +116,9 @@ export default class Players {
       this.#startListening()
     }
     const dispose = notify(fn, opts)
-    const sql = 'update systemStatus set listeners=$count'
-    db.run(sql, { count: notify.count() })
+    const item = 'listeners'
+    const sql = 'update systemStatus set value=$val where item=$item'
+    db.run(sql, { item, val: notify.count() })
     tick()
 
     this.#debug('listening: %d', notify.count())
@@ -120,7 +131,7 @@ export default class Players {
           fn: this.#stopListening.bind(this)
         })
       }
-      db.run(sql, { count: notify.count() })
+      db.run(sql, { item, val: notify.count() })
       tick()
       this.#debug('listening: %d', notify.count())
     }
@@ -165,9 +176,10 @@ export default class Players {
   async jonosRefresh () {
     if (this.#jonosRefresh) return
     this.#jonosRefresh = true
-    const sql = 'update systemStatus set jonosRefresh=$val'
+    const item = 'jonosRefresh'
+    const sql = 'update systemStatus set value=$val where item=$item'
     tick()
-    db.run(sql, { val: 1 })
+    db.run(sql, { item, val: 1 })
     try {
       await refreshCoverArt()
       await refreshAlbums()
@@ -176,7 +188,7 @@ export default class Players {
       console.error(err)
     }
     this.#jonosRefresh = false
-    db.run(sql, { val: 0 })
+    db.run(sql, { item, val: 0 })
     tick()
   }
 }

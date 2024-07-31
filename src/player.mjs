@@ -80,9 +80,7 @@ export default class Player {
       id: this.id,
       // if the url has been given then we set nullish ones to ''
       // to register "no media loaded"
-      url: 'trackUrl' in data
-        ? data.trackUrl ?? ''
-        : null,
+      url: 'trackUrl' in data ? data.trackUrl ?? '' : null,
       playState: data.playState ?? null,
       playMode: data.playMode ?? null
     }
@@ -90,7 +88,7 @@ export default class Player {
     if (parms.metadata) parms.metadata = JSON.stringify(parms.metadata)
     db.run(sql, parms)
     tick()
-    this.checkCommands()
+    this.checkActions()
   }
 
   #onRenderingControl (data) {
@@ -118,11 +116,18 @@ export default class Player {
     }
     db.run(sql, parms)
     tick()
+    this.checkActions()
   }
 
   // -------- Player attribute update -------------------
 
-  async updateEverything () {
+  async updateLeader () {
+    await safeRetry(async () =>
+      this.#onLeader(await this.#api.getCurrentGroup())
+    )
+  }
+
+  async updateAvTransport () {
     await safeRetry(async () =>
       this.#onAvTransport(await this.#api.getPositionInfo())
     )
@@ -132,15 +137,21 @@ export default class Player {
     await safeRetry(async () =>
       this.#onAvTransport(await this.#api.getPlayMode())
     )
+  }
+
+  async updateRendering () {
     await safeRetry(async () =>
       this.#onRenderingControl(await this.#api.getVolume())
     )
     await safeRetry(async () =>
       this.#onRenderingControl(await this.#api.getMute())
     )
-    await safeRetry(async () =>
-      this.#onLeader(await this.#api.getCurrentGroup())
-    )
+  }
+
+  async updateEverything () {
+    await this.updateLeader()
+    await this.updateAvTransport()
+    await this.updateRendering()
   }
 
   // -------- Start and stop listening ------------------
@@ -164,6 +175,18 @@ export default class Player {
 
   // ------------ Commands -----------------------
 
+  checkActions () {
+    const { id } = this
+    let sql = 'select cmd from playerActionsNeeded where id=$id'
+    const cmd = db.pluck.get(sql, { id })
+    if (!cmd) return
+    sql = 'select 1 from command where cmd=$cmd and player=$id'
+    if (db.get(sql, { id, cmd })) return
+    sql = 'insert into command(player,cmd) values($id,$cmd)'
+    db.run(sql, { id, cmd })
+    this.checkCommands()
+  }
+
   checkCommands () {
     if (this.#commander) return
     this.#commander = true
@@ -177,9 +200,9 @@ export default class Player {
       const rec = db.get(sql, { id: this.id })
       if (!rec) break
       sql = 'delete from command where id=$id'
-      db.run(sql, { id: rec.id })
       if (!this[rec.cmd]) {
         console.error('Cannot perform command:', rec)
+        db.run(sql, { id: rec.id })
         continue
       }
       this.#debug('run %s(%s)', rec.cmd, rec.parms)
@@ -200,6 +223,7 @@ export default class Player {
         console.error('Error when carrying out:', rec)
         console.error(err)
       }
+      db.run(sql, { id: rec.id })
     }
     this.#commander = false
   }
@@ -224,10 +248,8 @@ export default class Player {
       }
       urls = JSON.stringify(urls)
     }
-    const sql = `
-      insert into updatePlayerQueue (id, urls)
-      values ($id, $urls)
-    `
+    const sql = 'insert into updatePlayer (id, queue) values ($id, $urls)'
+    urls = urls ?? ''
     db.run(sql, { id: this.id, urls })
     tick()
   }

@@ -4,7 +4,8 @@ import Parsley from '@ludlovian/parsley'
 import timeout from '@ludlovian/timeout'
 import config from './config.mjs'
 
-const FAST_FAIL = false
+const FAST_FAIL = true
+// const FAST_FAIL = false
 
 export function fatal (err) {
   console.error('Fatal error:\n')

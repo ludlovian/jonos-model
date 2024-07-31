@@ -109,59 +109,33 @@ values
 
 ----------------------------------------------------------------
 -- System status table
+--
+-- A key/value table for various attributes about the current system
+--
 
 create table if not exists systemStatus (
-  id        integer primary key not null check (id = 1),
-  started       float,
-  version       text,
-  listeners     integer default 0,
-  listening     integer default 0,
-  jonosRefresh  integer default 0
+  id        integer primary key not null,
+  item      text not null,
+  value     any,
+  unique(item)
 );
-insert or ignore into systemStatus (id) values (1);
-drop trigger if exists systemStatus_upd_listeners;
-create trigger if not exists systemStatus_upd_listeners
-  after update of listeners, listening, jonosRefresh
-  on systemStatus
+insert or ignore into systemStatus (item)
+values
+  ('started'),
+  ('version'),
+  ('listeners'),
+  ('listening'),
+  ('jonosRefresh');
+
+drop trigger if exists systemStatus_upd;
+create trigger if not exists systemStatus_upd
+  after update on systemStatus
 begin
   insert into playerChange(player, key, value, timestamp)
-    select  null, a.key, a.curr, julianday()
-      from  (
-        select  'listeners' as key,
-                old.listeners as prev,
-                new.listeners as curr
-        union all
-        select  'listening' as key,
-                old.listening as prev,
-                new.listening as curr
-        union all
-        select  'jonosRefresh' as key,
-                old.jonosRefresh as prev,
-                new.jonosRefresh as curr
-      ) a
-      where a.curr is not a.prev;
+    select  null, new.item, new.value, julianday()
+      where new.value is not old.value;
 end;
 
-
-drop view if exists systemStatusEx;
-create view if not exists systemStatusEx as
-  with
-  chgMinMax as (
-    select  min(id) as firstChange,
-            max(id) as lastChange
-      from  playerChange
-  )
-  select  strftime('%FT%TZ', a.started) as started,
-          a.version,
-          ifnull(a.listeners, 0) as listeners,
-          a.listening,
-          a.jonosRefresh,
-          b.firstChange,
-          b.lastChange
-    from  systemStatus a
-    join  chgMinMax b;
-
-drop table if exists dataVersion;
 
 ----------------------------------------------------------------
 -- artwork
@@ -427,6 +401,14 @@ create view if not exists searchMediaEx as
     join  media b on b.id = a.id;
 
 ----------------------------------------------------------------
+--
+-- The Player
+--
+-- This is the heart of the DB
+--
+-- Some columns are derived via trigger and denormalised onto the
+-- row, which makes the update and change tracking process much easier
+
 create table if not exists player (
   -- static attributes
   id          integer primary key,
@@ -438,32 +420,130 @@ create table if not exists player (
                 (lower(replace(fullName, ' ', ''))) stored,
 
   -- dynamic attributes
-  leader      integer,
+  leaderId    integer,
   volume      integer,
   mute        integer,
   playState   text,
   playMode    text,
-  media       integer,    -- id of the media for this url
-  queue       text,       -- JSON array of media ids
+  mediaId     integer,    -- id of the media for this url
+  queueIds    text,       -- JSON array of media ids
   nowStream   text,
 
-  -- generated attributes
-  isLeader    integer generated always as
-                (id = leader),
-  playing     integer generated always as
-                (playState in ('PLAYING','TRANSITIONING')),
-  repeats     integer generated always as
-                (playMode in ('REPEAT','REPEAT_ALL')),
+  -- derived (denormalised) attributes
+  isLeader    integer,    -- leaderId derived
+  playing     integer,    -- playState derived
+  repeats     integer,    -- playMode derived
+  leaderName  text,       -- leaderId expanded
+  media       text,       -- mediaId expanded to metadata
+  queue       text,       -- queueIds expanded to be an array of metadatas
 
   unique (uuid),
   unique (url),
   unique (name),
-  foreign key (leader) references player(id),
-  foreign key (media) references media(id)
+  foreign key (leaderId) references player(id),
+  foreign key (mediaId) references media(id)
 );
 
 ----------------------------------------------------------------
+--
+-- Triggers to calculate derived values
+--
+
+drop trigger if exists player_upd_derived;
+create trigger if not exists player_upd_derived after update of
+  leaderId, playState, playMode, mediaId, queueIds
+on player
+begin
+  update  player
+    set   isLeader = (new.id = new.leaderId),
+          leaderName = (select name from player where id=new.leaderId)
+    where id = new.id
+      and new.leaderId is not old.leaderId;
+
+  update  player
+    set   playing = case when new.id = new.leaderId
+                      then new.playState in ('PLAYING', 'TRANSITIONING')
+                      else null
+                    end
+    where id = new.id
+      and (new.playState is not old.playState
+        or new.leaderId is not old.leaderId);
+
+  update  player
+    set   repeats = case when new.id = new.leaderId
+                      then new.playMode in ('REPEAT', 'REPEAT_ALL')
+                      else null
+                    end
+    where id = new.id
+      and (new.playMode is not old.playMode
+        or new.leaderId is not old.leaderId);
+
+  update  player
+    set   media = case when new.id = new.leaderId
+                    then (select metadata from media where id=new.mediaId)
+                    else null
+                  end
+    where id = new.id
+      and (new.mediaId is not old.mediaId
+        or new.leaderId is not old.leaderId);
+
+  update  player
+    set   queue =
+            case when new.id = new.leaderId
+                  and new.queueIds is not null
+              then (select  json_group_array(json(b.metadata)) as queue
+                      from  json_each(new.queueIds) a
+                      join  media b on b.id = a.value)
+              else null
+            end
+    where id = new.id
+      and (new.queueIds is not old.queueIds
+        or new.leaderId is not old.leaderId);
+end;
+
+----------------------------------------------------------------
+--
+-- Trigger to record changes in state
+--
+
+drop trigger if exists player_update_change;
+create trigger if not exists player_update_change after update of
+  leaderName, volume, mute, playing, media, queue, nowStream
+on player
+begin
+  insert into playerChange(player, timestamp, key, value)
+    select  new.id, julianday(), * from (
+        select  'leaderName', new.leaderName
+          where new.leaderName is not old.leaderName
+        union all
+        select  'volume', new.volume
+          where new.volume is not old.volume
+        union all
+        select  'mute', new.mute
+          where new.mute is not old.mute
+        union all
+        select  'playing', new.playing
+          where new.playing is not old.playing
+        union all
+        select  'media', new.media
+          where new.media is not old.media
+        union all
+        select  'queue', new.queue
+          where new.queue is not old.queue
+        union all
+        select  'nowStream', new.nowStream
+          where new.nowStream is not old.nowStream
+      );
+end;
+
+----------------------------------------------------------------
+--
 -- player changes
+--
+-- Records player changes in a KV list
+--
+-- If the player is NULL, that implies a change in system status
+--
 
 create table if not exists playerChange (
   id          integer primary key not null,
@@ -473,51 +553,6 @@ create table if not exists playerChange (
   timestamp   real,
   foreign key (player) references player(id)
 );
-drop trigger if exists player_update_change;
-create trigger if not exists player_update_change after update of
-  leader, volume, mute, playState, playMode, media, queue, nowStream
-on player
-begin
-  insert into playerChange(player, key, value, timestamp)
-    select  new.id, key, value, julianday()
-      from  (
-        select  'leaderName'          as key,
-                leaderName            as value
-          from  playerEx
-          where id = new.id
-            and new.leader is not old.leader
-      union all
-        select  'volume'              as key,
-                new.volume            as value
-          where new.volume is not old.volume
-      union all
-        select  'mute'                as key,
-                new.mute              as value
-          where new.mute is not old.mute
-      union all
-        select  'playing'             as key,
-                playing               as value
-          from  playerEx
-          where id = new.id
-            and new.playState is not old.playState
-      union all
-        select  'media'               as key,
-                media                 as value
-          from  playerEx
-          where id = new.id
-            and new.media is not old.media
-      union all
-        select  'queue'               as key,
-                queue                 as value
-          from  playerEx
-          where id = new.id
-            and new.queue is not old.queue
-      union all
-        select  'nowStream'           as key,
-                new.nowStream         as value
-          where new.nowStream is not old.nowStream
-      );
-end;
 
 drop view if exists playerChangeEx;
 create view playerChangeEx as
@@ -529,180 +564,173 @@ create view playerChangeEx as
     from  playerChange a
     left join player b on b.id = a.player;
 
-----------------------------------------------------------------
--- playerEx view
-
-drop view if exists playerEx;
-create view if not exists playerEx as
-  with cteQueue as (
-    select  a.id,
-            json_group_array(json(c.metadata)) as queue
-      from  player a
-      join  json_each(a.queue) b
-      join  media c on c.id = b.value
-      group by a.id
-  )
-  select  a.id,
-          a.name,
-          a.uuid,
-          a.fullName,
-          a.url,
-          a.model,
-          a.leader,
-          b.name as leaderName,
-          a.isLeader,
-          a.volume,
-          a.mute,
-          iif(a.isLeader, a.playState, null) as playState,
-          iif(a.isLeader, a.playing, null) as playing,
-          iif(a.isLeader, a.playMode, null) as playMode,
-          iif(a.isLeader, a.repeats, null) as repeats,
-          d.metadata as media,
-          c.queue as queue,
-          iif(a.isLeader, a.nowStream, null) as nowStream
-
-    from  player a
-    join  player b on b.id = a.leader
-    left join cteQueue c on c.id = a.id
-    left join media d on d.id = a.media;
-
-
-
 
 ----------------------------------------------------------------
 --
 -- Main updatePlayer stored proc
 --
+--  Mandatory parms:
+--      - id
+--
+--  Optional parms:
+--      - leaderUuid
+--      - volume
+--      - mute
+--      - playMode
+--      - playState
+--      - url (of current media)
+--      - metadata (JSON object)
+--      - queue (JSON array of urls)
+--
 
 drop view if exists updatePlayer;
 create view updatePlayer
-  (id, volume, mute, playMode, playState, leaderUuid, url, metadata)
-  as select 0,0,0,0,0,0,0,0 where 0;
+  (id, volume, mute, playMode, playState, leaderUuid, url, metadata, queue)
+  as select 0,0,0,0,0,0,0,0,0 where 0;
 create trigger updatePlayer_sproc instead of insert on updatePlayer
 begin
   -- make sure the media row exists if given
   insert into ensureMedia(url)
     select new.url where new.url is not null;
 
-  -- The player record is updated in stages. First
-  -- is the leader (from leaderUuid) if given as this
-  -- will affect later updates
+  -- similarly for the array of URLs if given
+  insert into ensureMedia(url)
+    select  value from json_each(new.queue)
+      where new.queue is not null;
+
+  -- Now update each element of the player separately
+  -- It might take a few more CPU cycles, but it makes it much
+  -- easier to understand and maintain
 
   update  player
-    set   leader = val.leader
-    from  (
-      select  ifnull(b.id, a.leader) as leader
-        from  player a
-        join  player b on b.uuid = new.leaderUuid
-        where a.id = new.id
-    ) as val
+    set   leaderId = (select id from player where uuid = new.leaderUuid)
     where id = new.id
-      and player.leader is not val.leader;
+      and new.leaderUuid is not null;
 
-  -- Then we set the volume/mute/playState & playMode
   update  player
-    set (volume, mute, playState, playMode) =
-          (val.volume, val.mute, val.playState, val.playMode)
-    from (
-      select  ifnull(new.volume, a.volume) as volume,
-              ifnull(new.mute, a.mute) as mute,
-              ifnull(new.playState, a.playState) as playState,
-              ifnull(new.playMode, a.playMode) as playMode
-        from  player a
-        where a.id = new.id
-    ) as val
+    set   volume = new.volume
     where id = new.id
-      and (player.volume, player.mute, player.playState, player.playMode)
-      is not (val.volume, val.mute, val.playState, val.playMode);
+      and new.volume is not null;
 
-  -- The we update the current media from the url if given
   update  player
-    set   media = val.media
-    from  (
-      select  iif(
-                a.isLeader,
-                ifnull(b.id, a.media),
-                null
-              ) as media
-        from  player a
-        left join  media b on b.url = new.url
-        where a.id = new.id
-    ) as val
+    set   mute = new.mute
     where id = new.id
-      and player.media is not val.media;
+      and new.mute is not null;
 
-  -- Update the nowStream from the metadata if we are playing a radio
+  update  player
+    set   playState = new.playState
+    where id = new.id
+      and new.playState is not null;
+
+  update  player
+    set   playMode = new.playMode
+    where id = new.id
+      and new.playMode is not null;
+
+  update  player
+    set   mediaId = (select id from media where url = new.url)
+    where id = new.id
+      and new.url is not null;
+
+  -- nowStream is a little more tricky
+  -- we extract it from the json object, but only
+  -- if we are playing a radio, and it isnt ZPSTR_*
+
   update  player
     set   nowStream = val.nowStream
-    from  ( select  new.metadata ->> '$.streamContent' as nowStream
+    from  (
+            select  new.metadata ->> '$.streamContent' as nowStream
               from  player a
-              join  mediaEx b on b.id = a.media
-              where a.id = new.id
-                and b.type = 'radio'
+              join  mediaEx b on b.id = a.mediaId
+                and a.id = new.id
+                and b.type = 'radio' 
                 and new.metadata is not null
           ) as val
     where id = new.id
+      and val.nowStream not glob 'ZPSTR_*'
       and player.nowStream is not val.nowStream;
 
-  -- We set the queue to null if we are not a leader
+  -- queueIds are converted from urls to ids
+  -- we use a special sentinel of '' to set the queueIds to null
+  -- as nulls mean 'do not update this'
+
   update  player
-    set   queue = null
+    set   queueIds = (
+            select  json_group_array(b.id) as queue
+              from  json_each(new.queue) a
+              join  media b on b.url = a.value
+              where new.queue is not null
+                and new.queue != ''
+              order by a.key
+          )
     where id = new.id
-      and not isLeader
-      and queue is not null;
+      and new.queue is not null
+      and new.queue != '';
 
-  -- We also et the queue to null if:
-  --  - if we are a leader, but playing something other than
-  --    a track
-  --
   update  player
-    set   queue = null
-    from  ( select  1
-              from  player a
-              join  mediaEx b on b.id = a.media
-              where a.id = new.id
-                and b.type != 'track'
-          ) as val
-    where id = new.id
-      and isLeader
-      and new.url is not null
-      and queue is not null;
-
-  -- We request a 'getQueue' action if
-  --  - a url was given
-  --  - this is a leader
-  --  - playing a track
-  --  - the queue is null OR
-  --      the current media item is not on the queue
-
-  insert into command (player, cmd)
-    select  new.id, 'getQueue'
-      from  player a
-      join  mediaEx b on b.id = a.media
-      where a.id = new.id
-        and new.url is not null
-        and a.isLeader
-        and b.type = 'track'
-        and ( a.queue is null
-          or  a.media not in
-                (select value from json_each(a.queue))
-        );
-
-  -- If we claim to be playing but have no media, then
-  -- we are out of sync.So we ask for a refresh
-  --
-  -- This can sometimes happen when a player changes media
-  -- by alarm
-
-  insert into command (player, cmd)
-    select  new.id, 'updateEverything'
-      from  player a
-      where a.id = new.id
-        and a.media is null
-        and a.playing = true
-        and a.isLeader = true;
+    set   queueIds = null
+    where new.queue = '';
 
 end;
+
+----------------------------------------------------------------
+--
+--  playerActionsNeeded
+--
+--  A view which idenitifies additional actions needed based on
+--  the current status
+--
+
+drop view if exists playerActionsNeeded;
+create view if not exists playerActionsNeeded as
+  --
+  -- We might need to refresh the queue if a player
+  --    - is a leader
+  --    - has a track as the current media
+  --    - and EITHER has no queue OR
+  --                 the current media does not appear in the queue
+  --
+  with needsQueues (id, name, cmd) as (
+    select  a.id, a.name, 'getQueue'
+      from  player a
+      join  mediaEx b on b.id = a.mediaId
+      where a.isLeader is true
+        and b.type = 'track'
+        and (
+          a.queueIds is null
+          or
+          a.mediaId not in (select value from json_each(a.queueIds))
+        )
+  ),
+  --
+  --  We might need to update the track uri if a player
+  --    - is a leader
+  --    - has no media at all (not even the '' url denoting
+  --      no media loaded)
+  needsAvTransport (id, name, cmd) as (
+    select  a.id, a.name, 'updateAvTransport'
+      from  player a
+      where a.isLeader is true
+        and a.mediaId is null
+  ),
+  --
+  --  If a player has started following another (media type='follow')
+  --  the we need to update the leader if we still think they are
+  --  a leader. It will happen eventually at the next topology updated
+  --  but we can pre-empt this
+  needsLeader (id, name, cmd) as (
+    select  a.id, a.name, 'updateLeader'
+      from  player a
+      join  mediaEx b on b.id = a.mediaId
+      where a.isLeader is true
+        and b.type = 'follow'
+  )
+
+  select  * from needsQueues
+  union all
+  select  * from needsAvTransport
+  union all
+  select  * from needsLeader;
 
 ----------------------------------------------------------------
 --
@@ -734,47 +762,6 @@ begin
             a.value ->> '$.leaderUuid'
     from    json_each(new.players) a
     join    player b on b.uuid = a.value ->> '$.uuid';
-end;
-
-----------------------------------------------------------------
---
---  updatePlayerQueue
---
---  converts a player Queue of urls into a media ids
---
-
-drop view if exists updatePlayerQueue;
-create view if not exists updatePlayerQueue (id, urls) as select 0,0 where 0;
-create trigger if not exists updatePlayerQueue_sproc instead of insert on updatePlayerQueue
-begin
-  -- make sure each url has a media id
-
-  insert into ensureMedia (url)
-  select value from json_each(new.urls);
-
-  -- set the queue if it is an array of urls
-
-  update  player
-    set   queue = val.queue
-    from  (
-      select  json_group_array(b.id) as queue
-        from  json_each(new.urls) a
-        join  media b on b.url = a.value
-        where new.urls is not null
-        order by a.key
-    ) as val
-    where id = new.id
-      and new.urls is not null
-      and player.queue is not val.queue;
-
-  -- set the queue if it is nulls
-
-  update  player
-    set   queue = null
-    where id = new.id
-      and new.urls is null
-      and queue is not null;
-
 end;
 
 
@@ -856,28 +843,17 @@ create view if not exists currentState as
               when 'queue'        then a.queue
               when 'nowStream'    then a.nowStream
             end as value
-      from  playerEx a
+      from  player a
       join  playerKeys b
       join  lastChange c
   ),
-  systemKeys (key) as (
-    values  ('started'),('version'),('listeners'),('listening'),
-            ('jonosRefresh')
-  ),
   systemState (id, player, key, value) as (
-    select  c.id,
+    select  b.id,
             'system',
-            b.key,
-            case b.key
-              when 'started'      then a.started
-              when 'version'      then a.version
-              when 'listeners'    then a.listeners
-              when 'listening'    then a.listening
-              when 'jonosRefresh' then a.jonosRefresh
-            end as value
-      from  systemStatusEx a
-      join  systemKeys b
-      join  lastChange c
+            a.item,
+            a.value
+      from  systemStatus a
+      join  lastChange b
   ),
   presetState (id, player, key, value) as (
     select  b.id,
