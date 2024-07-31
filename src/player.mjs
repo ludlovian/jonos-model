@@ -78,7 +78,11 @@ export default class Player {
     `
     const parms = {
       id: this.id,
-      url: data.trackUrl ?? null,
+      // if the url has been given then we set nullish ones to ''
+      // to register "no media loaded"
+      url: 'trackUrl' in data
+        ? data.trackUrl ?? ''
+        : null,
       playState: data.playState ?? null,
       playMode: data.playMode ?? null
     }
