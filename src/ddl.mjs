@@ -11,20 +11,19 @@ insert or ignore into schema values(1, 2);
 
 ----------------------------------------------------------------
 --
--- settings table, with a single row
+-- settings table, with a row for each setting
 
 create table if not exists settings (
-  id                integer primary key not null check (id = 1),
-  cifsPrefix        text not null,
-  libraryRoot       text not null
+  id                integer primary key,
+  item              text not null,
+  value             any,
+  unique (item)
 );
 
-insert or ignore into settings
-  values (
-    1,
-    'x-file-cifs://pi2.local/data/',
-    'library/files'
-  );
+insert or ignore into settings (item, value)
+values
+  ('cifsPrefix',      'x-file-cifs://pi2.local/data/'),
+  ('libraryRoot',     'library/files');
 
 ----------------------------------------------------------------
 --
@@ -336,9 +335,9 @@ begin
 
   -- now ensure that the urls are registered on media
   insert into ensureMedia
-    select  concat(b.cifsPrefix, new.path, '/', a.value ->> '$.file')
+    select  concat(b.value, new.path, '/', a.value ->> '$.file')
       from  json_each(new.metadata, '$.tracks') a
-      join  settings b;
+      join  settings b on b.item = 'cifsPrefix';
 
   -- and insert them into the track table
   insert into track
@@ -346,15 +345,15 @@ begin
     select  c.id                      as id,
             new.id                    as albumId, 
             a.key                     as seq,
-            concat(b.cifsPrefix, new.path, '/', a.value ->> '$.file')
+            concat(b.value, new.path, '/', a.value ->> '$.file')
                                       as url,
             a.value ->> '$.title'     as title,
             a.value ->> '$.file'      as file,
             a.value -> '$.artist'     as artist
       from  json_each(new.metadata, '$.tracks') a
-      join  settings b
+      join  settings b on b.item = 'cifsPrefix'
       join  media c on c.url =
-            concat(b.cifsPrefix, new.path, '/', a.value ->> '$.file');
+            concat(b.value, new.path, '/', a.value ->> '$.file');
 
   -- finally we update the metadata on the media table
   update  media

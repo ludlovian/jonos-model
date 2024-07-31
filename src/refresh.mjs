@@ -34,7 +34,7 @@ export async function refreshAlbums () {
   const report = () => debug('%d albums checked', i)
 
   await db.asyncTransaction(config.commitDelay, async () => {
-    const root = db.pluck.get('select libraryRoot from settings')
+    const root = db.getSetting('libraryRoot')
     const unseen = new Set(db.pluck.all('select path from album'))
     for await (const rec of scanDir(root)) {
       if (rec.name === 'metadata.json') {

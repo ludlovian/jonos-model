@@ -21,6 +21,11 @@ export const db = new Database(config.database, {
   checkSchema: schema
 })
 
+db.getSetting = function getSetting (item) {
+  const sql = 'select value from settings where item=$item'
+  return db.pluck.get(sql, { item })
+}
+
 export function housekeep (when = {}) {
   if (when.start) {
     const env = process.env
