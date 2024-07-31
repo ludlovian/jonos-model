@@ -689,17 +689,19 @@ begin
                 (select value from json_each(a.queue))
         );
 
-  -- We request a 'updateEverything' call if it appears
-  -- we are out of sync. Curerntly this means:
+  -- If we claim to be playing but have no media, then
+  -- we are out of sync.So we ask for a refresh
   --
-  --  apparently leading and playing, but no media given
+  -- This can sometimes happen when a player changes media
+  -- by alarm
 
   insert into command (player, cmd)
     select  new.id, 'updateEverything'
       from  player a
-      where a.media is null
-        and a.playing
-        and a.isLeader;
+      where a.id = new.id
+        and a.media is null
+        and a.playing = true
+        and a.isLeader = true;
 
 end;
 
