@@ -20,6 +20,7 @@ async function main () {
 // ----------------------------------------------------------------
 
 function setupOther () {
+  db.run("insert into ensureMedia values('')")
   const otherMedia = [
     { name: 'web', file: 'library/web.png' },
     { name: 'tv', file: 'library/tv.png' }
