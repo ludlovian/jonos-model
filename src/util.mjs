@@ -4,8 +4,8 @@ import Parsley from '@ludlovian/parsley'
 import timeout from '@ludlovian/timeout'
 import config from './config.mjs'
 
-const FAST_FAIL = true
-// const FAST_FAIL = false
+// const FAST_FAIL = true
+const FAST_FAIL = false
 
 export function fatal (err) {
   console.error('Fatal error:\n')
@@ -37,7 +37,8 @@ async function retryEx (fn, opts) {
         throw err
       }
       _err ??= err
-      console.error('Retrying %s', fn)
+      console.error('Retrying', fn)
+      console.error(err)
       await sleep(delay)
     }
   }
@@ -47,6 +48,7 @@ async function retryEx (fn, opts) {
     return null
   }
   if (isFatal) return fatal(_err)
+  console.error(_err)
   throw _err
 }
 

@@ -8,8 +8,8 @@ export default configure('JONOS_MODEL_', {
 
   // when making network calls
   callRetries: 2,
-  callTimeout: '2s',
-  callRetryDelay: '1s',
+  callTimeout: '4s',
+  callRetryDelay: '2s',
 
   // listener
   notifyDebounce: 200,
