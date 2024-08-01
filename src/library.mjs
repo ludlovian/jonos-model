@@ -109,7 +109,10 @@ create view if not exists mediaEx as
           a.title,
           c.metadata,
           a.artwork,
-          datetime(a.played, 'localtime') as played
+          case
+            when a.played > 0 then datetime(a.played, 'localtime')
+            else null
+          end as played
     from  media a
     join  mediaType b on b.id = a.type
     join  mediaMetadata c on c.id = a.id;
