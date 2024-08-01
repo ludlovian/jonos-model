@@ -95,19 +95,6 @@ values
 
 ----------------------------------------------------------------
 --
---  An exapanded view of the preset
---
-
-create view if not exists presetEx as
-  select  a.name,
-          a.leader,
-          b.key as player,
-          b.value as volume
-    from  preset a
-    join  json_each(a.volumes) b;
-
-----------------------------------------------------------------
---
 -- Notifies table
 
 create table if not exists notify (
