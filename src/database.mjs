@@ -82,7 +82,4 @@ export function housekeep (when = {}) {
       delete from player;
     `)
   }
-  if (when.idle) {
-    db.run('pragma wal_checkpoint(restart)')
-  }
 }
