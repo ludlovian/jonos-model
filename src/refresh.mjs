@@ -52,6 +52,8 @@ function getSetting (db, item) {
 }
 
 async function setupLibrary () {
+  setupDefaultArtwork()
+
   const { players } = await Player.discover()
   const uuids = players.map(({ uuid }) => uuid)
   const ensureMedia = 'insert into ensureMedia(url) values($url)'
@@ -66,11 +68,10 @@ async function setupLibrary () {
     url: 'x-sonos-htastream:RINCON_B8E93741A6C201400:spdif'
   })
 
-  setupOther()
   setupRadios()
 }
 
-function setupOther () {
+function setupDefaultArtwork () {
   ;[
     { name: 'web', file: 'library/web.png' },
     { name: 'tv', file: 'library/tv.png' }
