@@ -1,118 +1,176 @@
+import process from 'node:process'
 import { readdir, stat, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import Database from '@ludlovian/sqlite'
+import Player from '@ludlovian/jonos-api'
 import sortBy from '@ludlovian/sortby'
 import Debug from '@ludlovian/debug'
 
 import config from './config.mjs'
-import { db } from './database.mjs'
+import mainCreateDDL from './ddl.mjs'
+import artworkCreateDDL from './artwork.mjs'
+import libraryCreateDDL from './library.mjs'
+import libraryRuntimeDDL from './library.runtime.mjs'
 
-const debug = Debug('jonos-model:refresh')
+const debug = Debug('jonos-model:refresh*')
 
-export async function refreshCoverArt () {
+const mainDb = process.argv[2]
+
+const db = {}
+
+main()
+
+async function main () {
+  setupDatabases()
+  await setupLibrary()
+  const prefix = getSetting(db.main, 'cifsPrefix')
+  const root = getSetting(db.main, 'libraryRoot')
+  await refreshAlbums(db, root, prefix)
+  await refreshCoverArt(db.artwork)
+  debug('Refresh complete')
+}
+
+function setupDatabases () {
+  debug('Refreshing database at: ', mainDb)
+  db.main = new Database(mainDb)
+  db.main.exec(mainCreateDDL)
+
+  const artworkDb = getSetting(db.main, 'artworkDb')
+  debug('Artwork database at: ', artworkDb)
+  db.artwork = new Database(artworkDb)
+  db.artwork.exec(artworkCreateDDL)
+
+  const libraryDb = getSetting(db.main, 'libraryDb')
+  debug('Library database at: ', libraryDb)
+  db.library = new Database(libraryDb)
+  db.library.exec(libraryCreateDDL)
+  db.library.exec(libraryRuntimeDDL)
+}
+
+function getSetting (db, item) {
+  return db.pluck.get('select value from settings where item=$item', { item })
+}
+
+async function setupLibrary () {
+  const { players } = await Player.discover()
+  const uuids = players.map(({ uuid }) => uuid)
+  const ensureMedia = 'insert into ensureMedia(url) values($url)'
+  db.library.run(ensureMedia, { url: '' })
+  uuids.forEach(uuid =>
+    db.library.run(ensureMedia, { url: 'x-rincon:' + uuid })
+  )
+  uuids.forEach(uuid =>
+    db.library.run(ensureMedia, { url: `x-rincon-queue:${uuid}#0` })
+  )
+  db.library.run(ensureMedia, {
+    url: 'x-sonos-htastream:RINCON_B8E93741A6C201400:spdif'
+  })
+
+  setupOther()
+  setupRadios()
+}
+
+function setupOther () {
+  ;[
+    { name: 'web', file: 'library/web.png' },
+    { name: 'tv', file: 'library/tv.png' }
+  ].forEach(({ name, file }) => {
+    const artwork = ensureArtwork(db.artwork, file)
+    db.library.run('update mediaType set artwork=$artwork where name=$name', {
+      name,
+      artwork
+    })
+  })
+}
+
+function setupRadios () {
+  const type = db.library.pluck.get(`
+    select id from mediaType where name='radio'
+  `)
+  ;[
+    {
+      url: 'x-rincon-mp3radio://https://allclassical.streamguys1.com/ac128kmp3',
+      title: 'All Classical Radio',
+      file: 'library/allclassical.png'
+    }
+  ].forEach(({ url, title, file }) => {
+    const artwork = ensureArtwork(db.artwork, file)
+    const sql = `
+      insert or ignore into media (type, url, title, artwork)
+      values ($type, $url, $title, $artwork)
+    `
+    db.library.run(sql, { type, url, title, artwork })
+  })
+}
+
+export async function refreshAlbums (db, root, prefix) {
+  debug('Refreshing albums found in: ', root)
+  debug('Assigning CIFS prefix:', prefix)
+
+  let i = 0
+  const report = () => debug('%d albums checked', i)
+
+  for await (const rec of scanDir(root)) {
+    if (rec.name === 'metadata.json') {
+      const { parentPath: path, file } = rec
+      const row = db.library.get(
+        'select id, hash from album where path=$path',
+        { path }
+      )
+      const hash = await getHash(file)
+      if (!row || hash !== row.hash) {
+        debug('Adding album %s', path)
+        const artwork = ensureArtwork(db.artwork, join(root, path, 'cover.jpg'))
+        const metadata = await readFile(file, 'utf8')
+        if (row) {
+          db.library.run('insert into removeAlbum(path) values($path)', {
+            path
+          })
+        }
+        db.library.run(
+          `insert into addAlbum(path,hash,prefix,metadata,artwork)
+          values($path,$hash,$prefix,$metadata,$artwork)`,
+          { path, hash, prefix, metadata, artwork }
+        )
+      }
+      if (++i % 100 === 0) report()
+    }
+  }
+  report()
+  db.library.run('rebuildSearch')
+}
+
+function ensureArtwork (db, file) {
+  db.run('insert or ignore into artwork(file) values($file)', { file })
+  return db.pluck.get('select id from artwork where file=$file', { file })
+}
+
+export async function refreshCoverArt (db) {
+  debug('Refreshing cover art')
   let i = 0
   const report = () => debug('%d artworks checked', i)
 
   await db.asyncTransaction(config.commitDelay, async () => {
-    const sql = 'select id, file, hash from artwork'
-    for (const { id, file, hash } of db.all(sql)) {
-      const newHash = await getHash(file)
-      if (!newHash) {
-        console.error('%s is missing', file)
+    const recs = db.all('select id, file, hash from artwork')
+    for (const rec of recs) {
+      const hash = await getHash(rec.file)
+      if (!hash) {
+        console.error('%s is missing', rec.file)
         return
       }
-      if (hash !== newHash) {
-        await addArtwork(file, { hash, id })
+      if (hash !== rec.hash) {
+        debug('Adding art %s', rec.file)
+        const image = await readFile(rec.file)
+        db.run('update artwork set hash=$hash, image=$image where id=$id', {
+          id: rec.id,
+          hash,
+          image
+        })
       }
       if (++i % 100 === 0) report()
     }
     report()
   })
-}
-
-export async function refreshAlbums () {
-  let i = 0
-  const report = () => debug('%d albums checked', i)
-
-  await db.asyncTransaction(config.commitDelay, async () => {
-    const root = db.getSetting('libraryRoot')
-    const unseen = new Set(db.pluck.all('select path from album'))
-    for await (const rec of scanDir(root)) {
-      if (rec.name === 'metadata.json') {
-        const path = rec.parentPath
-        unseen.delete(path)
-        await checkAlbum(rec.file, path, join(root, path))
-        if (++i % 100 === 0) report()
-      }
-    }
-    report()
-    for (const path of unseen) {
-      db.run('delete from album where path=$path', { path })
-    }
-    db.run('update media set metadata=null where metadata is null')
-    db.run('rebuildSearch')
-  })
-}
-
-export function prune () {}
-
-async function checkAlbum (file, path, albumDir) {
-  const hash = await getHash(file)
-  let sql
-  sql = 'select id, hash from album where path = $path'
-  const rec = db.get(sql, { path })
-  if (rec && rec.hash === hash) return
-  debug('Adding album %s', path)
-  const metadata = await readFile(file, 'utf8')
-  if (rec) {
-    sql = `
-      update album set hash = $hash, metadata = jsonb($metadata)
-      where id = $id
-    `
-    db.update(sql, { hash, metadata })
-  } else {
-    sql = `
-      insert into album (path, hash, metadata)
-        values ($path, $hash, jsonb($metadata))
-    `
-    db.run(sql, { path, hash, metadata })
-  }
-  sql = 'select id, cover from album where path=$path'
-  const { id, cover } = db.get(sql, { path })
-
-  await setCoverArt(id, join(albumDir, cover))
-}
-
-async function setCoverArt (albumId, file) {
-  let sql = 'select id from artwork where file=$file'
-  let artwork = db.pluck.get(sql, { file })
-  if (!artwork) artwork = await addArtwork(file)
-  sql = `
-    update media set artwork = $artwork
-    where id in (select id from trackEx where albumId = $albumId)
-  `
-  db.run(sql, { artwork, albumId })
-}
-
-async function addArtwork (file, { hash, id } = {}) {
-  if (!hash) hash = await getHash(file)
-  debug('Adding artwork %s', file)
-  const image = await readFile(file)
-  if (id) {
-    const sql = `
-      update artwork set (hash, image) = ($hash, $image)
-      where id = $id
-    `
-    db.run(sql, { id, hash, image })
-    return id
-  } else {
-    const sql = `
-      insert into artwork(file, hash, image)
-      values ($file, $hash, $image)
-      returning id
-    `
-    id = db.pluck.get(sql, { file, hash, image })
-    return id
-  }
 }
 
 async function getHash (path) {

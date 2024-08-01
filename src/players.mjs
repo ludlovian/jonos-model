@@ -5,9 +5,7 @@ import { db, housekeep } from './database.mjs'
 import Player from './player.mjs'
 import { notify, tick } from './notify.mjs'
 import { retry } from './util.mjs'
-import config from './config.mjs'
 import CommandManager from './command.mjs'
-import { refreshCoverArt, refreshAlbums } from './refresh.mjs'
 
 export default class Players {
   all = []
@@ -21,7 +19,6 @@ export default class Players {
   #started = false
   #tmDelayedStop
   #commandMgr
-  #jonosRefresh = false
 
   constructor () {
     this.#debug = Debug('jonos-model:model')
@@ -74,6 +71,7 @@ export default class Players {
     this.#commandMgr.stopMonitor()
     if (notify.count()) notify.clear()
     await this.#stopListening()
+    db.close()
     this.#debug('model stopped')
     this.#started = false
   }
@@ -170,26 +168,5 @@ export default class Players {
         )
       }
     }
-  }
-
-  // -------- Refresh -----------------------------------
-
-  async jonosRefresh () {
-    if (this.#jonosRefresh) return
-    this.#jonosRefresh = true
-    const item = 'jonosRefresh'
-    const sql = 'update systemStatus set value=$val where item=$item'
-    tick()
-    db.run(sql, { item, val: 1 })
-    try {
-      await refreshCoverArt()
-      await refreshAlbums()
-    } catch (err) {
-      console.error('Error in refresh')
-      console.error(err)
-    }
-    this.#jonosRefresh = false
-    db.run(sql, { item, val: 0 })
-    tick()
   }
 }

@@ -452,10 +452,4 @@ export default class Player {
 
     if (wasPlaying) await this.play()
   }
-
-  // ------------ Commands deferred to parent ----
-  jonosRefresh () {
-    // deliberately not awaiting
-    this.players.jonosRefresh()
-  }
 }
