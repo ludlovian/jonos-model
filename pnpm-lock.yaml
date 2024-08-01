@@ -19,7 +19,7 @@ importers:
         version: https://codeload.github.com/ludlovian/debug/tar.gz/720a2f06021239565dd0b62aa823fd8741705a30
       '@ludlovian/jonos-api':
         specifier: github:ludlovian/jonos-api
-        version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/b7a3f885a97c7d85ee44498463a24a300581f5c6
+        version: https://codeload.github.com/ludlovian/jonos-api/tar.gz/d4349033d81c998b320f600fb3af2a10a27392eb
       '@ludlovian/lock':
         specifier: github:ludlovian/lock
         version: https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c
@@ -61,9 +61,9 @@ packages:
     resolution: {tarball: https://codeload.github.com/ludlovian/guess/tar.gz/98ce9a84b91c571001c7ce164fad7ab9ce1946a4}
     version: 0.1.0
 
-  '@ludlovian/jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/b7a3f885a97c7d85ee44498463a24a300581f5c6':
-    resolution: {tarball: https://codeload.github.com/ludlovian/jonos-api/tar.gz/b7a3f885a97c7d85ee44498463a24a300581f5c6}
-    version: 0.7.5
+  '@ludlovian/jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/d4349033d81c998b320f600fb3af2a10a27392eb':
+    resolution: {tarball: https://codeload.github.com/ludlovian/jonos-api/tar.gz/d4349033d81c998b320f600fb3af2a10a27392eb}
+    version: 0.7.6
 
   '@ludlovian/lock@https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c':
     resolution: {tarball: https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c}
@@ -242,7 +242,7 @@ snapshots:
 
   '@ludlovian/guess@https://codeload.github.com/ludlovian/guess/tar.gz/98ce9a84b91c571001c7ce164fad7ab9ce1946a4': {}
 
-  '@ludlovian/jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/b7a3f885a97c7d85ee44498463a24a300581f5c6':
+  '@ludlovian/jonos-api@https://codeload.github.com/ludlovian/jonos-api/tar.gz/d4349033d81c998b320f600fb3af2a10a27392eb':
     dependencies:
       '@ludlovian/camel': https://codeload.github.com/ludlovian/camel/tar.gz/8389f121d271c7930e99ad82b0dc5dbe16dfcb03
       '@ludlovian/configure': https://codeload.github.com/ludlovian/configure/tar.gz/bbd23d329e3b15a09e5953940ee81486a0d1465c
@@ -250,7 +250,6 @@ snapshots:
       '@ludlovian/guess': https://codeload.github.com/ludlovian/guess/tar.gz/98ce9a84b91c571001c7ce164fad7ab9ce1946a4
       '@ludlovian/lock': https://codeload.github.com/ludlovian/lock/tar.gz/d1ca32b46e1e59cb8d7736f64a438dabc570555c
       '@ludlovian/parsley': https://codeload.github.com/ludlovian/parsley/tar.gz/5b58e1c577974747706190ab362dd2d185587728
-      '@ludlovian/timeout': https://codeload.github.com/ludlovian/timeout/tar.gz/bb8ad7cf5e35442c41409be15c8658bafb2b3ada
       '@ludlovian/timer': https://codeload.github.com/ludlovian/timer/tar.gz/fa5cf51fba00f2715de2b182d1d546d7a8cbe883
       '@lukeed/ms': 2.0.2
 
