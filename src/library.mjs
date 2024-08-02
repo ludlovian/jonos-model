@@ -1,6 +1,6 @@
 export default `
 
-begin;
+savepoint library_ddl;
 ----------------------------------------------------------------
 --
 -- The media library database
@@ -79,7 +79,6 @@ create table if not exists mediaMetadata (
 --  for dynamically created entries
 --
 
-drop trigger if exists media_ins;
 create trigger if not exists media_ins after insert on media
 begin
   insert into mediaMetadata (id, metadata)
@@ -101,7 +100,6 @@ end;
 --  A more user friendly view of a media item
 --
 
-drop view if exists mediaEx;
 create view if not exists mediaEx as
   select  a.id,
           b.name as type,
@@ -180,7 +178,6 @@ create view if not exists track as
 create virtual table if not exists searchMedia
   using fts5(id, text);
 
-drop view if exists searchMediaEx;
 create view if not exists searchMediaEx as
   select  a.id,
           a.text,
@@ -189,7 +186,7 @@ create view if not exists searchMediaEx as
     join  mediaEx b on b.id = a.id;
 
 ----------------------------------------------------------------
-commit;
+release library_ddl;
 
 -- vim: ft=sql ts=2 sts=2 sw=2 et
 ----------------------------------------------------------------

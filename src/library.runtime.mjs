@@ -1,6 +1,6 @@
 export default `
 
-begin;
+savepoint library_runtime_ddl;
 ----------------------------------------------------------------
 --
 -- Runtime (temp) DDL for the library
@@ -196,7 +196,7 @@ begin
 end;
 
 ----------------------------------------------------------------
-commit;
+release savepoint library_runtime_ddl;
 
 
 -- vim: ft=sql ts=2 sts=2 sw=2 et

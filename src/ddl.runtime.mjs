@@ -5,13 +5,12 @@ export default `
 ----------------------------------------------------------------
 --
 --  Pragma settings for the main connection
-pragma journal_mode = wal;
 pragma foreign_keys = true;
 pragma recursive_triggers = true;
 pragma trusted_schema = false;
 pragma synchronous = normal;
 
-begin;
+savepoint main_runtime_ddl;
 
 ----------------------------------------------------------------
 --
@@ -160,6 +159,27 @@ create view temp.updatePlayer
   as select 0,0,0,0,0,0,0,0,0 where 0;
 create trigger temp.updatePlayer_sproc instead of insert on updatePlayer
 begin
+  -- log the data if we are logging
+  insert into eventLog(player, event, timestamp, data)
+    with inputs (key, value) as (
+      values
+        ('volume',        new.volume),
+        ('mute',          new.mute),
+        ('playMode',      new.playMode),
+        ('playState',     new.playState),
+        ('leaderUuid',    new.leaderUuid),
+        ('url',           new.url),
+        ('metadata',      jsonb(new.metadata)),
+        ('queue',         jsonb(new.queue))
+    )
+    select  new.id,
+            'updatePlayer',
+            julianday(),
+            json_group_object(a.key, a.value)
+      from  inputs a
+      join  settings b on b.item = 'logEvents' and b.value != 0
+      where a.value is not null;
+
   -- make sure the media row exists if given
   insert into ensureMedia(url)
     select new.url where new.url is not null;
@@ -259,6 +279,11 @@ create view temp.updatePlayerTopology (players) as select 0 where 0;
 create trigger temp.updatePlayerTopology_sproc
   instead of insert on updatePlayerTopology
 begin
+  -- log the data if we are logging
+  insert into eventLog(player, event, timestamp, data)
+    select  null, 'updatePlayerTopology', julianday(), new.players
+      from  settings a
+      where a.item = 'logEvents' and a.value != 0;
 
   insert or ignore into player (uuid, fullName, url)
     select  value ->> '$.uuid',
@@ -282,6 +307,23 @@ end;
 
 ----------------------------------------------------------------
 --
+--  command logging trigger
+--
+--  used to log commands added (by this connection)
+--
+
+create trigger temp.command_insert_log after insert on command
+begin
+  -- log the new command if we are logging
+  insert into eventLog(player, event, timestamp, data)
+    select new.player, new.cmd, julianday(), new.parms
+      from  settings a
+      where a.item = 'logEvents' and a.value != 0;
+
+end;
+
+----------------------------------------------------------------
+--
 --  playerActionsNeeded
 --
 --  A view which idenitifies additional actions needed based on
@@ -293,23 +335,41 @@ end;
 
 create view temp.playerActionsNeeded as
   --
-  -- We might need to refresh the queue if a player
+  --  We might need to refresh the queue if a player
   --    - is a leader
-  --    - has a track as the current media
-  --    - and EITHER has no queue OR
-  --                 the current media does not appear in the queue
+  --    - and the media and track do not fall into one of the following
+  --      acceptable states
+  --        - queue is NULL and media is not a TRACK
+  --        - media is a TRACK, and appears in the queue
   --
-  with needsQueues (id, name, cmd) as (
+  --      Queue   Media track?    Media in queue?      GetQueue?
+  --       null       yes               -                 Yes
+  --       null       no                -                  -
+  --      not null    yes              yes                 -
+  --      not null    yes               no                Yes
+  --      not null    no                -                 Yes
+  --
+  
+  with bools (id, inQueue, isTrack, hasQueue, noMedia, isFollow) as (
+    select  a.id,
+            a.mediaId in (select value from json_each(a.queueIds)),
+            b.type = 'track',
+            a.queueIds is not null,
+            a.mediaId is null,
+            b.type = 'follow'
+      from  player a
+      left join mediaEx b on b.id = a.mediaId
+  ),
+  needsQueue (id, name, cmd) as (
     select  a.id, a.name, 'getQueue'
       from  player a
-      join  mediaEx b on b.id = a.mediaId
-      where a.isLeader is true
-        and b.type = 'track'
+      join  bools b on b.id = a.id
+      where a.isLeader
         and (
-          a.queueIds is null
-          or
-          a.mediaId not in (select value from json_each(a.queueIds))
-        )
+              (not hasQueue and isTrack) or
+              (hasQueue and isTrack and not inQueue) or
+              (hasQueue and not isTrack)
+            )
   ),
   --
   --  We might need to update the track uri if a player
@@ -319,8 +379,9 @@ create view temp.playerActionsNeeded as
   needsAvTransport (id, name, cmd) as (
     select  a.id, a.name, 'updateAvTransport'
       from  player a
-      where a.isLeader is true
-        and a.mediaId is null
+      join  bools b on b.id = a.id
+      where a.isLeader
+        and noMedia
   ),
   --
   --  If a player has started following another (media type='follow')
@@ -330,12 +391,12 @@ create view temp.playerActionsNeeded as
   needsLeader (id, name, cmd) as (
     select  a.id, a.name, 'updateLeader'
       from  player a
-      join  mediaEx b on b.id = a.mediaId
-      where a.isLeader is true
-        and b.type = 'follow'
+      join  bools b on b.id = a.id
+      where a.isLeader
+        and isFollow
   )
 
-  select  * from needsQueues
+  select  * from needsQueue
   union all
   select  * from needsAvTransport
   union all
@@ -343,7 +404,7 @@ create view temp.playerActionsNeeded as
 
 
 ----------------------------------------------------------------
-commit;
+release main_runtime_ddl;
 
 
 -- vim: ft=sql ts=2 sts=2 sw=2 et

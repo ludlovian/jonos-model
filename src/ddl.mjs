@@ -1,7 +1,7 @@
 export default `
 ----------------------------------------------------------------
 
-begin;
+savepoint main_ddl;
 ----------------------------------------------------------------
 --
 --  The main Jonos database
@@ -49,7 +49,8 @@ values
   ('artworkDb',       'db/artwork.db'),
   ('cifsPrefix',      'x-file-cifs://pi2.local/data/'),
   ('libraryRoot',     'library/files'),
-  ('idleTimeout',     10_000);
+  ('idleTimeout',     10_000),
+  ('logEvents',       0);
 
 ----------------------------------------------------------------
 --
@@ -255,6 +256,29 @@ create view if not exists commandEx as
 
 ----------------------------------------------------------------
 --
+-- The event log table if we are logging events
+--
+create table if not exists eventLog (
+  id          integer primary key not null,
+  player      integer,        -- null = 'system' event
+  event       text,
+  data        text,
+  timestamp   real
+);
+
+create view if not exists eventLogEx as
+  select  a.id,
+          ifnull(b.name, 'system') as player,
+          a.event,
+          a.data,
+          datetime(a.timestamp, 'localtime', 'subsec') as timestamp
+    from  eventLog a
+    left join player b on b.id = a.player;
+
+--
+--
+----------------------------------------------------------------
+--
 --  The complete current state for the sytem in a vertical
 --  table with
 --      - player / 'system'
@@ -333,7 +357,7 @@ create view if not exists currentState as
   order by 1;
 
 ----------------------------------------------------------------
-commit;
+release main_ddl;
 
 -- vim: ft=sql ts=2 sts=2 sw=2 et
 ----------------------------------------------------------------
