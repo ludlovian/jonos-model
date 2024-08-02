@@ -30,6 +30,10 @@ export default class Players {
     return this.all.some(p => p.isListening)
   }
 
+  get allListening () {
+    return this.all.every(p => p.isListening)
+  }
+
   // -------- Discovery ---------------------------------
   //
 
@@ -80,8 +84,8 @@ export default class Players {
   //
 
   async #startListening () {
+    if (!this.#started) await this.start()
     await retry(async () => {
-      if (!this.#started) await this.start()
       await Promise.all(this.all.map(p => p.start()))
       const item = 'listening'
       const val = 1
@@ -94,7 +98,6 @@ export default class Players {
   }
 
   async #stopListening () {
-    if (!this.isListening) return
     await retry(async () => {
       await Promise.all(this.all.map(p => p.stop()))
       const item = 'listening'
@@ -110,16 +113,14 @@ export default class Players {
 
   listen (fn, opts) {
     this.#tmDelayedStop?.cancel()
-    if (!notify.count()) {
-      this.#startListening()
-    }
+    if (!this.allListening) this.#startListening()
     const dispose = notify(fn, opts)
     const item = 'listeners'
     const sql = 'update systemStatus set value=$val where item=$item'
     db.run(sql, { item, val: notify.count() })
     tick()
 
-    this.#debug('listening: %d', notify.count())
+    this.#debug('listeners: %d', notify.count())
 
     return () => {
       dispose()
@@ -132,7 +133,7 @@ export default class Players {
       }
       db.run(sql, { item, val: notify.count() })
       tick()
-      this.#debug('listening: %d', notify.count())
+      this.#debug('listeners: %d', notify.count())
     }
   }
 
