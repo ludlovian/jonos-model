@@ -272,6 +272,7 @@ export default class Player {
       const sql = 'insert into updatePlayer(id, url) values($id, $url)'
       db.run(sql, { id: this.id, url })
       tick()
+      if (play) await this.play()
       return
     }
 
