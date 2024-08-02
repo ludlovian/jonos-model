@@ -163,14 +163,15 @@ begin
   insert into eventLog(player, event, timestamp, data)
     with inputs (key, value) as (
       values
-        ('volume',        new.volume),
-        ('mute',          new.mute),
-        ('playMode',      new.playMode),
-        ('playState',     new.playState),
-        ('leaderUuid',    new.leaderUuid),
-        ('url',           new.url),
-        ('metadata',      jsonb(new.metadata)),
-        ('queue',         jsonb(new.queue))
+        ('volume',      new.volume),
+        ('mute',        new.mute),
+        ('playMode',    new.playMode),
+        ('playState',   new.playState),
+        ('leaderUuid',  new.leaderUuid),
+        ('url',         new.url),
+        ('metadata',    jsonb(new.metadata)),
+                        -- queue can be the non-json sentinel ''
+        ('queue',       iif(new.queue = '', '', jsonb(new.queue)))
     )
     select  new.id,
             'updatePlayer',
@@ -187,7 +188,8 @@ begin
   -- similarly for the array of URLs if given
   insert into ensureMedia(url)
     select  value from json_each(new.queue)
-      where new.queue is not null;
+      where new.queue is not null
+        and new.queue is not '';
 
   -- Now update each element of the player separately
   -- It might take a few more CPU cycles, but it makes it much
