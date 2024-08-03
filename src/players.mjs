@@ -3,7 +3,7 @@ import Debug from '@ludlovian/debug'
 import Timer from '@ludlovian/timer'
 import { db, housekeep } from './database.mjs'
 import Player from './player.mjs'
-import { notify, tick } from './notify.mjs'
+import { notify } from './notify.mjs'
 import { retry } from './util.mjs'
 import CommandManager from './command.mjs'
 
@@ -60,7 +60,6 @@ export default class Players {
     sql = 'select distinct name from playerActionsNeeded'
     const names = db.pluck.all(sql)
     names.forEach(name => this.byName[name]?.checkActions())
-    tick()
   }
 
   // -------- Start and Stop ----------------------------
@@ -95,7 +94,6 @@ export default class Players {
       const val = 1
       const sql = 'update systemStatus set value=$val where item=$item'
       db.run(sql, { item, val })
-      tick()
       this.#debug('Started listening')
       this.onListening?.(true)
     })
@@ -108,7 +106,6 @@ export default class Players {
       const val = 0
       const sql = 'update systemStatus set value=$val where item=$item'
       db.run(sql, { item, val })
-      tick()
       this.#debug('Stopped listening')
       housekeep({ idle: true })
       this.onListening?.(false)
@@ -122,7 +119,6 @@ export default class Players {
     const item = 'listeners'
     const sql = 'update systemStatus set value=$val where item=$item'
     db.run(sql, { item, val: notify.count() })
-    tick()
 
     this.#debug('listeners: %d', notify.count())
 
@@ -136,7 +132,6 @@ export default class Players {
         })
       }
       db.run(sql, { item, val: notify.count() })
-      tick()
       this.#debug('listeners: %d', notify.count())
     }
   }

@@ -1,5 +1,6 @@
 import process from 'node:process'
 import Database from '@ludlovian/sqlite'
+import { tick } from './notify.mjs'
 import config from './config.mjs'
 
 import mainCreateDDL from './ddl.mjs'
@@ -45,9 +46,12 @@ function setupDatabases (path) {
   db.exec(libraryRuntimeDDL)
   db.exec(mainRuntimeDDL)
 
+  const dispose = db.notify(tick)
+
   // Fix up the close
   const origClose = db.close.bind(db)
   db.close = () => {
+    dispose()
     housekeep({ shutdown: true })
     db.run('detach library')
     db.run('detach artwork')
@@ -57,6 +61,7 @@ function setupDatabases (path) {
 
   // Fix up getSetting
   db.getSetting = item => getSetting(db, item)
+
   return db
 }
 

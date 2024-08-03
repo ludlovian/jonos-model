@@ -5,7 +5,6 @@ import Lock from '@ludlovian/lock'
 import ApiPlayer from '@ludlovian/jonos-api'
 
 import { retry, safeRetry, verify, xmlToObject } from './util.mjs'
-import { tick } from './notify.mjs'
 import { db } from './database.mjs'
 import config from './config.mjs'
 
@@ -87,7 +86,6 @@ export default class Player {
     parms.metadata = xmlToObject(data.trackMetadata)
     if (parms.metadata) parms.metadata = JSON.stringify(parms.metadata)
     db.run(sql, parms)
-    tick()
     this.checkActions()
   }
 
@@ -102,7 +100,6 @@ export default class Player {
       mute: data.mute === undefined ? null : data.mute ? 1 : 0
     }
     db.run(sql, parms)
-    tick()
   }
 
   #onLeader (data) {
@@ -115,7 +112,6 @@ export default class Player {
       leaderUuid: data.leaderUuid
     }
     db.run(sql, parms)
-    tick()
     this.checkActions()
   }
 
@@ -251,7 +247,6 @@ export default class Player {
     const sql = 'insert into updatePlayer (id, queue) values ($id, $urls)'
     urls = urls ?? ''
     db.run(sql, { id: this.id, urls })
-    tick()
   }
 
   // ------------ Enqueuing Media ----------------
@@ -271,7 +266,6 @@ export default class Player {
       await retry(() => this.#api.setAVTransportURI(url))
       const sql = 'insert into updatePlayer(id, url) values($id, $url)'
       db.run(sql, { id: this.id, url })
-      tick()
       if (play) await this.play()
       return
     }
@@ -294,7 +288,6 @@ export default class Player {
       await this.enqueue(url)
       const sql = 'insert into updatePlayer(id, url) values($id, $url)'
       db.run(sql, { id: this.id, url })
-      tick()
       await this.getQueue()
 
       if (play) {
@@ -306,7 +299,6 @@ export default class Player {
           const sql =
             'insert into updatePlayer(id,playMode) values($id,$playMode)'
           db.run(sql, { id: this.id, playMode })
-          tick()
         }
       }
     }
