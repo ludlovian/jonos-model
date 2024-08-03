@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import process from 'node:process'
 import { readdir, stat, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -6,11 +7,11 @@ import Player from '@ludlovian/jonos-api'
 import sortBy from '@ludlovian/sortby'
 import Debug from '@ludlovian/debug'
 
-import config from './config.mjs'
-import mainCreateDDL from './ddl.mjs'
-import artworkCreateDDL from './artwork.mjs'
-import libraryCreateDDL from './library.mjs'
-import libraryRuntimeDDL from './library.runtime.mjs'
+import config from '../src/config.mjs'
+import mainCreateDDL from '../src/ddl.mjs'
+import artworkCreateDDL from '../src/artwork.mjs'
+import libraryCreateDDL from '../src/library.mjs'
+import libraryRuntimeDDL from '../src/library.runtime.mjs'
 
 const debug = Debug('jonos-model:refresh*')
 

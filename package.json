@@ -4,6 +4,9 @@
   "description": "Stateful model of my sonos",
   "type": "module",
   "exports": "./src/index.mjs",
+  "bin": {
+      "jonos-refresh": "./bin/jonos-refresh.mjs"
+  },
   "scripts": {
     "clean": "rm -rf coverage/ node_modules/.cache/",
     "format": "prettier-standard '{src,test}/**/*.mjs'",
