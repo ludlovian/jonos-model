@@ -48,6 +48,7 @@ function setupDatabases (path) {
   // Fix up the close
   const origClose = db.close.bind(db)
   db.close = () => {
+    housekeep({ shutdown: true })
     db.run('detach library')
     db.run('detach artwork')
     db.close = origClose
@@ -64,22 +65,26 @@ function getSetting (db, item) {
 }
 
 export function housekeep (when = {}) {
-  if (when.start) {
-    const env = process.env
-    let version = 'dev'
-    if (env.NODE_ENV === 'production' && env.npm_package_version) {
-      version = env.npm_package_version
+  const vars = getEnvVars()
+  for (const type of Object.keys(when)) {
+    const sqls = db.pluck.all(
+      'select sql from housekeeping where type=$type order by seq',
+      { type }
+    )
+    for (let sql of sqls) {
+      for (const [template, value] of vars) {
+        sql = sql.replace(template, value)
+      }
+      db.exec(sql)
     }
-    const sql = "update systemStatus set value=$version where item='version'"
-    db.run(sql, { version })
-    db.exec(`
-      update systemStatus set value=0
-        where item in ('listeners', 'listening', 'jonosRefresh');
-      update systemStatus set value=strftime('%FT%TZ','now')
-        where item='started';
-      delete from command;
-      delete from playerChange;
-      delete from player;
-    `)
   }
+}
+
+function getEnvVars () {
+  const env = process.env
+  let version = 'dev'
+  if (env.NODE_ENV === 'production' && env.npm_package_version) {
+    version = env.npm_package_version
+  }
+  return [['{{VERSION}}', version]]
 }

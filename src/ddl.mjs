@@ -56,6 +56,30 @@ values
 --
 -- Presets
 --
+create table if not exists housekeeping (
+  id          integer primary key not null,
+  type        text not null,
+  seq         integer not null,
+  sql         text not null,
+  unique (type, seq)
+);
+
+insert or ignore into housekeeping (type,seq,sql)
+values
+  ('start',10,'update systemStatus set value=''{{VERSION}}'' where item=''version'''),
+  ('start',20,'update systemStatus set value=0 where item=''listeners'''),
+  ('start',30,'update systemStatus set value=0 where item=''listening'''),
+  ('start',40,'update systemStatus set value=strftime(''%FT%TZ'',''now'') where item=''started'''),
+  ('start',50,'delete from command'),
+  ('start',60,'delete from playerChange'),
+  ('start',70,'delete from player'),
+
+  ('idle',10,'delete from playerChange where timestamp<julianday(''now'',''-1 day'')');
+
+----------------------------------------------------------------
+--
+-- Presets
+--
 
 create table if not exists preset (
   id          integer primary key not null,

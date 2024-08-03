@@ -26,12 +26,16 @@ export default class Players {
     this.addCommand = this.#commandMgr.addCommand.bind(this.#commandMgr)
   }
 
+  get started () {
+    return this.#started && this.all.length > 0
+  }
+
   get isListening () {
-    return this.all.some(p => p.isListening)
+    return this.started && this.all.some(p => p.isListening)
   }
 
   get allListening () {
-    return this.all.every(p => p.isListening)
+    return this.started && this.all.every(p => p.isListening)
   }
 
   // -------- Discovery ---------------------------------

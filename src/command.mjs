@@ -55,7 +55,7 @@ export default class CommandManager {
   }
 
   stopMonitor () {
-    this.#tmMonitor.cancel()
+    this.#tmMonitor?.cancel()
   }
 
   #getVersion () {

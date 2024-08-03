@@ -1,25 +1,12 @@
-import Bouncer from '@ludlovian/bouncer'
-import config from './config.mjs'
 // Notification manager
 //
 
 let ticking = false
 const callbacks = new Set()
 
-export function notify (callback, opts = {}) {
-  const { debounce = config.notifyDebounce } = opts
-  let bouncer
-  if (debounce) {
-    bouncer = new Bouncer({ after: debounce, fn: callback })
-    callback = bouncer.fire
-  }
+export function notify (callback) {
   callbacks.add(callback)
-  return dispose
-
-  function dispose () {
-    callbacks.delete(callback)
-    if (bouncer) bouncer.cancel()
-  }
+  return () => callbacks.delete(callback)
 }
 
 export function tick () {
