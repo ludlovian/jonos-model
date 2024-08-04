@@ -73,8 +73,10 @@ values
   ('start',50,'delete from command'),
   ('start',60,'delete from playerChange'),
   ('start',70,'delete from player'),
+  ('start',80,'pragma optimize=0x10002'),
 
-  ('idle',10,'delete from playerChange where timestamp<julianday(''now'',''-1 day'')');
+  ('idle',10,'delete from playerChange where timestamp<julianday(''now'',''-1 day'')'),
+  ('idle',20,'pragma optimize');
 
 ----------------------------------------------------------------
 --
