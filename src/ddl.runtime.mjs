@@ -161,7 +161,7 @@ create trigger temp.updatePlayer_sproc instead of insert on updatePlayer
 begin
   -- log the data if we are logging
   insert into eventLog(player, event, timestamp, data)
-    with inputs (key, value) as (
+    with allInputs (key, value) as (
       values
         ('volume',      new.volume),
         ('mute',        new.mute),
@@ -172,14 +172,18 @@ begin
         ('metadata',    jsonb(new.metadata)),
                         -- queue can be the non-json sentinel ''
         ('queue',       iif(new.queue = '', '', jsonb(new.queue)))
+    ),
+    logEnabled (logEnabled) as (
+      select value != 0 from settings where item = 'logEvents'
+    ),
+    jsonData (count, data) as (
+      select  count(a.key), json_group_object(a.key, a.value)
+        from  allInputs a
+        join  logEnabled b
+        where a.value is not null and b.logEnabled is true
     )
-    select  new.id,
-            'updatePlayer',
-            julianday(),
-            json_group_object(a.key, a.value)
-      from  inputs a
-      join  settings b on b.item = 'logEvents' and b.value != 0
-      where a.value is not null;
+    select  new.id, 'updatePlayer', julianday(), data
+      from  jsonData where count > 0;
 
   -- make sure the media row exists if given
   insert into ensureMedia(url)
